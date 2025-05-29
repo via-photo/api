@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Трекер питания</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://use.fontawesome.com/releases/v5.15.3/css/all.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --tg-theme-bg-color: #ffffff;
+            --tg-theme-text-color: #222222;
+            --tg-theme-button-color: #4d6073;
+            --tg-theme-button-text-color: #ffffff;
+        }
+        
+        body {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            margin: 0;
+            background-color: var(--tg-theme-bg-color, #f5f5f5);
+            color: var(--tg-theme-text-color, #222222);
+            font-family: 'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            overflow-y: auto;
+        }
+
+        .content-container {
+            flex-grow: 1;
+            padding-bottom: 70px; /* Для нижней навигации */
+            overflow-y: auto;
+        }
+
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            background-color: #ffffff;
+            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px 0;
+            color: #6c757d;
+            text-decoration: none;
+            font-size: 12px;
+            transition: color 0.3s;
+        }
+
+        .nav-item.active {
+            color: var(--tg-theme-button-color, #4d6073);
+            font-weight: 600;
+        }
+
+        .nav-icon {
+            font-size: 20px;
+            margin-bottom: 4px;
+        }
+
+        .section {
+            display: none;
+            padding: 20px;
+        }
+
+        .section.active {
+            display: block;
+        }
+
+        .page-title {
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: var(--tg-theme-text-color, #333);
+        }
+
+        .card {
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            margin-bottom: 16px;
+            border: none;
+        }
+
+        .card-header {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #eee;
+            font-weight: 600;
+            border-radius: 12px 12px 0 0 !important;
+        }
+
+        /* Стили для пустых секций */
+        .empty-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+            text-align: center;
+            color: #6c757d;
+        }
+
+        .empty-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+            color: #dee2e6;
+        }
+        
+        .btn-primary {
+            background-color: var(--tg-theme-button-color, #4d6073);
+            border-color: var(--tg-theme-button-color, #4d6073);
+            color: var(--tg-theme-button-text-color, #ffffff);
+        }
+        
+        .btn-outline-primary {
+            color: var(--tg-theme-button-color, #4d6073);
+            border-color: var(--tg-theme-button-color, #4d6073);
+        }
+        
+        .btn-outline-primary:hover {
+            background-color: var(--tg-theme-button-color, #4d6073);
+            color: var(--tg-theme-button-text-color, #ffffff);
+        }
+        
+        .badge.bg-primary {
+            background-color: var(--tg-theme-button-color, #4d6073) !important;
+        }
+
+        .loading-spinner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 0;
+        }
+
+        .error-message {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="content-container">
+        <!-- Секция Дневник -->
+        <div id="diary-section" class="section active">
+            <h2 class="page-title">📘 Дневник питания</h2>
+            <div id="diary-content">
+                <div class="loading-spinner">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-2">Загрузка данных дневника...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Секция Статистика -->
+        <div id="stats-section" class="section">
+            <h2 class="page-title">📊 Статистика</h2>
+            <div id="stats-content">
+                <div class="loading-spinner">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-2">Загрузка статистики...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Секция Рецепты -->
+        <div id="recipes-section" class="section">
+            <h2 class="page-title">🥗 Рецепты</h2>
+            <div id="recipes-content">
+                <div class="loading-spinner">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-2">Загрузка рецептов...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Секция Вес (пустая) -->
+        <div id="weight-section" class="section">
+            <h2 class="page-title">⚖️ Вес</h2>
+            <div class="empty-section">
+                <div class="empty-icon">
+                    <i class="fas fa-weight"></i>
+                </div>
+                <h4>Раздел в разработке</h4>
+                <p>Здесь будет отображаться информация о вашем весе и его динамике.</p>
+            </div>
+        </div>
+
+        <!-- Секция Профиль (пустая) -->
+        <div id="profile-section" class="section">
+            <h2 class="page-title">👤 Профиль</h2>
+            <div class="empty-section">
+                <div class="empty-icon">
+                    <i class="fas fa-user-circle"></i>
+                </div>
+                <h4>Раздел в разработке</h4>
+                <p>Здесь будет отображаться информация о вашем профиле и настройках.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Нижняя навигационная панель -->
+    <nav class="bottom-nav">
+        <div class="container">
+            <div class="row text-center">
+                <div class="col">
+                    <a href="#diary" class="nav-item active" data-section="diary-section">
+                        <div class="nav-icon">📘</div>
+                        <span>Дневник</span>
+                    </a>
+                </div>
+                <div class="col">
+                    <a href="#stats" class="nav-item" data-section="stats-section">
+                        <div class="nav-icon">📊</div>
+                        <span>Статистика</span>
+                    </a>
+                </div>
+                <div class="col">
+                    <a href="#recipes" class="nav-item" data-section="recipes-section">
+                        <div class="nav-icon">🥗</div>
+                        <span>Рецепты</span>
+                    </a>
+                </div>
+                <div class="col">
+                    <a href="#weight" class="nav-item" data-section="weight-section">
+                        <div class="nav-icon">⚖️</div>
+                        <span>Вес</span>
+                    </a>
+                </div>
+                <div class="col">
+                    <a href="#profile" class="nav-item" data-section="profile-section">
+                        <div class="nav-icon">👤</div>
+                        <span>Профиль</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script>
+        /**
+         * Клиент API для взаимодействия с бэкендом Telegram бота
+         */
+        class TelegramBotApiClient {
+            constructor(apiBaseUrl) {
+                this.apiBaseUrl = apiBaseUrl || 'http://localhost:8000/api';
+                this.apiKey = 'test_api_key'; // В реальном приложении должен быть получен безопасным способом
+            }
+
+            /**
+             * Получение данных дневника питания пользователя
+             * @param {string} userId - ID пользователя в Telegram
+             * @returns {Promise<Object>} - Данные дневника питания
+             */
+            async getDiary(userId) {
+                try {
+                    const response = await this._fetchWithAuth(`${this.apiBaseUrl}/diary/${userId}`);
+                    return response.data;
+                } catch (error) {
+                    console.error('Ошибка при получении данных дневника:', error);
+                    throw error;
+                }
+            }
+
+            /**
+             * Получение статистики пользователя
+             * @param {string} userId - ID пользователя в Telegram
+             * @returns {Promise<Object>} - Данные статистики
+             */
+            async getStats(userId) {
+                try {
+                    const response = await this._fetchWithAuth(`${this.apiBaseUrl}/stats/${userId}`);
+                    return response.data;
+                } catch (error) {
+                    console.error('Ошибка при получении статистики:', error);
+                    throw error;
+                }
+            }
+
+            /**
+             * Получение рецептов для пользователя
+             * @param {string} userId - ID пользователя в Telegram
+             * @returns {Promise<Object>} - Данные рецептов
+             */
+            async getRecipes(userId) {
+                try {
+                    const response = await this._fetchWithAuth(`${this.apiBaseUrl}/recipes/${userId}`);
+                    return response.data;
+                } catch (error) {
+                    console.error('Ошибка при получении рецептов:', error);
+                    throw error;
+                }
+            }
+
+            /**
+             * Добавление приема пищи
+             * @param {Object} mealData - Данные о приеме пищи
+             * @returns {Promise<Object>} - Результат операции
+             */
+            async addMeal(mealData) {
+                try {
+                    const response = await this._fetchWithAuth(`${this.apiBaseUrl}/meal`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(mealData)
+                    });
+                    return response;
+                } catch (error) {
+                    console.error('Ошибка при добавлении приема пищи:', error);
+                    throw error;
+                }
+            }
+
+            /**
+             * Вспомогательный метод для выполнения запросов с аутентификацией
+             * @param {string} url - URL для запроса
+             * @param {Object} options - Опции запроса
+             * @returns {Promise<Object>} - Результат запроса
+             * @private
+             */
+            async _fetchWithAuth(url, options = {}) {
+                const headers = {
+                    'X-API-Key': this.apiKey,
+                    ...(options.headers || {})
+                };
+
+                const response = await fetch(url, {
+                    ...options,
+                    headers
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`API запрос не удался: ${response.status} ${response.statusText} - ${errorText}`);
+                }
+
+                return await response.json();
+            }
+        }
+
+        // Основной код приложения
+        document.addEventListener('DOMContentLoaded', function() {
+            // Инициализация API клиента
+            const apiClient = new TelegramBotApiClient();
+            
+            // Инициализация Telegram WebApp
+            initTelegramWebApp();
+            
+            // Загрузка данных для всех разделов
+            loadAllData();
+            
+            // Обработка навигации
+            const navItems = document.querySelectorAll('.nav-item');
+            const sections = document.querySelectorAll('.section');
+
+            navItems.forEach(item => {
+                item.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    
+                    // Удаляем активный класс у всех элементов навигации
+                    navItems.forEach(navItem => navItem.classList.remove('active'));
+                    
+                    // Добавляем активный класс текущему элементу
+                    this.classList.add('active');
+                    
+                    // Скрываем все секции
+                    sections.forEach(section => section.classList.remove('active'));
+                    
+                    // Показываем нужную секцию
+                    const sectionId = this.getAttribute('data-section');
+                    document.getElementById(sectionId).classList.add('active');
+                    
+                    // Прокручиваем страницу вверх
+                    window.scrollTo(0, 0);
+                });
+            });
+
+            // Обработчик для кнопки "Добавить приём пищи"
+            document.addEventListener('click', function(e) {
+                if (e.target.closest('#addMealBtn')) {
+                    sendDataToBot({
+                        action: 'add_meal',
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            });
+
+            // Обработчик для кнопок "Подробнее" в рецептах
+            document.addEventListener('click', function(e) {
+                if (e.target.closest('.recipe-details-btn')) {
+                    const recipeCard = e.target.closest('.card');
+                    const recipeTitle = recipeCard.querySelector('.card-title').textContent;
+                    
+                    sendDataToBot({
+                        action: 'get_recipe_details',
+                        recipe: recipeTitle
+                    });
+                }
+            });
+        });
+
+        // Функция для загрузки всех данных
+        async function loadAllData() {
+            const userId = getUserId();
+            
+            if (!userId) {
+                showError('diary-content', 'Не удалось получить ID пользователя. Пожалуйста, откройте приложение через Telegram.');
+                showError('stats-content', 'Не удалось получить ID пользователя. Пожалуйста, откройте приложение через Telegram.');
+                showError('recipes-content', 'Не удалось получить ID пользователя. Пожалуйста, откройте приложение через Telegram.');
+                return;
+            }
+            
+            // Загружаем данные для всех разделов
+            loadDiaryData(userId);
+            loadStatsData(userId);
+            loadRecipesData(userId);
+        }
+
+        // Функция для получения ID пользователя из Telegram WebApp
+        function getUserId() {
+            if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+                return window.Telegram.WebApp.initDataUnsafe.user.id.toString();
+            }
+            
+            // Для тестирования вне Telegram
+            return localStorage.getItem('testUserId') || '123456789';
+        }
+
+        // Функция для загрузки данных дневника
+        async function loadDiaryData(userId) {
+            const diaryContent = document.getElementById('diary-content');
+            
+            try {
+                // В реальном приложении здесь будет вызов API
+                // const apiClient = new TelegramBotApiClient();
+                // const diaryData = await apiClient.getDiary(userId);
+                
+                // Для демонстрации используем встроенные данные
+                const diaryData = getDemoData('diary');
+                
+                // Отображаем данные дневника
+                renderDiaryData(diaryData);
+            } catch (error) {
+                console.error('Ошибка при загрузке данных дневника:', error);
+                showError('diary-content', 'Не удалось загрузить данные дневника. Пожалуйста, попробуйте позже.');
+            }
+        }
+
+        // Функция для загрузки данных статистики
+        async function loadStatsData(userId) {
+            const statsContent = document.getElementById('stats-content');
+            
+            try {
+                // В реальном приложении здесь будет вызов API
+                // const apiClient = new TelegramBotApiClient();
+                // const statsData = await apiClient.getStats(userId);
+                
+                // Для демонстрации используем встроенные данные
+                const statsData = getDemoData('stats');
+                
+                // Отображаем данные статистики
+                renderStatsData(statsData);
+            } catch (error) {
+                console.error('Ошибка при загрузке данных статистики:', error);
+                showError('stats-content', 'Не удалось загрузить данные статистики. Пожалуйста, попробуйте позже.');
+            }
+        }
+
+        // Функция для загрузки данных рецептов
+        async function loadRecipesData(userId) {
+            const recipesContent = document.getElementById('recipes-content');
+            
+            try {
+                // В реальном приложении здесь будет вызов API
+                // const apiClient = new TelegramBotApiClient();
+                // const recipesData = await apiClient.getRecipes(userId);
+                
+                // Для демонстрации используем встроенные данные
+                const recipesData = getDemoData('recipes');
+                
+                // Отображаем данные рецептов
+                renderRecipesData(recipesData);
+            } catch (error) {
+                console.error('Ошибка при загрузке данных рецептов:', error);
+                showError('recipes-content', 'Не удалось загрузить данные рецептов. Пожалуйста, попробуйте позже.');
+            }
+        }
+
+        // Функция для отображения данных дневника
+        function renderDiaryData(data) {
+            const diaryContent = document.getElementById('diary-content');
+            
+            let html = '<div class="container">';
+            
+            // Отображаем дни
+            data.days.forEach(day => {
+                html += `
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>${day.date}</span>
+                        <span class="badge bg-primary">${day.total_calories} ккал</span>
+                    </div>
+                    <div class="card-body">
+                `;
+                
+                // Отображаем приемы пищи
+                day.meals.forEach((meal, index) => {
+                    const isLast = index === day.meals.length - 1;
+                    
+                    html += `
+                    <div class="meal-item ${isLast ? '' : 'mb-3 pb-3 border-bottom'}">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <div>
+                                <h5 class="mb-1">${meal.name}</h5>
+                                <p class="text-muted small mb-0">${meal.time}</p>
+                            </div>
+                            <span class="badge bg-light text-dark">${meal.calories} ккал</span>
+                        </div>
+                        <div class="mt-2">
+                    `;
+                    
+                    // Отображаем продукты
+                    meal.items.forEach((item, itemIndex) => {
+                        const isLastItem = itemIndex === meal.items.length - 1;
+                        
+                        html += `
+                        <div class="d-flex justify-content-between ${isLastItem ? '' : 'mb-1'}">
+                            <span>${item.name}</span>
+                            <span class="text-muted">${item.calories} ккал</span>
+                        </div>
+                        `;
+                    });
+                    
+                    html += `
+                        </div>
+                    </div>
+                    `;
+                });
+                
+                html += `
+                    </div>
+                </div>
+                `;
+            });
+            
+            // Добавляем кнопку для добавления приема пищи
+            html += `
+            <div class="d-grid gap-2">
+                <button class="btn btn-primary mb-4" type="button" id="addMealBtn">
+                    <i class="fas fa-plus-circle me-2"></i>Добавить приём пищи
+                </button>
+            </div>
+            `;
+            
+            html += '</div>';
+            
+            diaryContent.innerHTML = html;
+        }
+
+        // Функция для отображения данных статистики
+        function renderStatsData(data) {
+            const statsContent = document.getElementById('stats-content');
+            
+            let html = `
+            <div class="container">
+                <!-- Общая статистика -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Общая статистика</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <div class="p-3 border rounded text-center">
+                                    <h3 class="mb-1">${data.general.avg_calories}</h3>
+                                    <p class="text-muted mb-0">Средние ккал/день</p>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="p-3 border rounded text-center">
+                                    <h3 class="mb-1">${data.general.days_tracked}</h3>
+                                    <p class="text-muted mb-0">Дней в трекере</p>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="p-3 border rounded text-center">
+                                    <h3 class="mb-1">${data.general.adherence_percent}%</h3>
+                                    <p class="text-muted mb-0">Соблюдение нормы</p>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="p-3 border rounded text-center">
+                                    <h3 class="mb-1">${data.general.weight_change > 0 ? '+' : ''}${data.general.weight_change} кг</h3>
+                                    <p class="text-muted mb-0">Изменение веса</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Распределение БЖУ -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Распределение БЖУ</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-2 mt-3">
+                            <div class="col-4">
+                                <div class="p-2 border rounded text-center">
+                                    <h5 class="mb-0">${data.nutrition_distribution.protein}%</h5>
+                                    <small class="text-muted">Белки</small>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="p-2 border rounded text-center">
+                                    <h5 class="mb-0">${data.nutrition_distribution.fat}%</h5>
+                                    <small class="text-muted">Жиры</small>
+                                </div>
+                            </div>
+                            <div class="col-4">
+                                <div class="p-2 border rounded text-center">
+                                    <h5 class="mb-0">${data.nutrition_distribution.carb}%</h5>
+                                    <small class="text-muted">Углеводы</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Топ продуктов -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Часто употребляемые продукты</h5>
+                    </div>
+                    <div class="card-body">
+                        <ul class="list-group list-group-flush">
+            `;
+            
+            // Отображаем топ продуктов
+            data.top_products.forEach(product => {
+                html += `
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>${product.name}</span>
+                    <span class="badge bg-primary rounded-pill">${product.count} раз</span>
+                </li>
+                `;
+            });
+            
+            html += `
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            `;
+            
+            statsContent.innerHTML = html;
+        }
+
+        // Функция для отображения данных рецептов
+        function renderRecipesData(data) {
+            const recipesContent = document.getElementById('recipes-content');
+            
+            let html = `
+            <div class="container">
+                <!-- Поиск рецептов -->
+                <div class="mb-4">
+                    <div class="input-group">
+                        <input type="text" class="form-control" placeholder="Поиск рецептов...">
+                        <button class="btn btn-primary" type="button">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Категории рецептов -->
+                <div class="mb-4 pb-2 border-bottom">
+                    <div class="d-flex flex-nowrap overflow-auto pb-2" style="gap: 10px;">
+            `;
+            
+            // Отображаем категории
+            data.categories.forEach((category, index) => {
+                html += `
+                <button class="btn btn-sm ${index === 0 ? 'btn-primary' : 'btn-outline-primary'}">${category}</button>
+                `;
+            });
+            
+            html += `
+                    </div>
+                </div>
+                
+                <!-- Список рецептов -->
+                <div class="row g-3">
+            `;
+            
+            // Отображаем рецепты
+            data.recipes.forEach(recipe => {
+                html += `
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-body">
+                            <h5 class="card-title">${recipe.title}</h5>
+                            <div class="d-flex mb-2">
+                                <span class="badge bg-light text-dark me-2">${recipe.category}</span>
+                                <span class="badge bg-light text-dark me-2">${recipe.prep_time}</span>
+                                <span class="badge bg-light text-dark">${recipe.calories} ккал</span>
+                            </div>
+                            <p class="card-text">${recipe.description}</p>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <small class="text-muted">
+                                        <i class="fas fa-fire me-1"></i>${recipe.calories} ккал
+                                    </small>
+                                    <small class="text-muted ms-3">
+                                        <i class="fas fa-utensils me-1"></i>${recipe.portions} порция
+                                    </small>
+                                </div>
+                                <button class="btn btn-sm btn-outline-primary recipe-details-btn">Подробнее</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                `;
+            });
+            
+            html += `
+                </div>
+            </div>
+            `;
+            
+            recipesContent.innerHTML = html;
+        }
+
+        // Функция для отображения ошибки
+        function showError(containerId, message) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = `
+            <div class="error-message">
+                <i class="fas fa-exclamation-triangle me-2"></i>
+                ${message}
+            </div>
+            `;
+        }
+
+        // Функция для инициализации Telegram WebApp
+        function initTelegramWebApp() {
+            if (window.Telegram && window.Telegram.WebApp) {
+                const tg = window.Telegram.WebApp;
+                
+                // Расширяем WebApp на весь экран
+                tg.expand();
+                
+                // Получаем данные пользователя
+                const user = tg.initDataUnsafe?.user;
+                if (user) {
+                    console.log('Telegram user:', user);
+                    // Здесь можно использовать данные пользователя для персонализации
+                    localStorage.setItem('telegramUser', JSON.stringify(user));
+                }
+                
+                // Устанавливаем цвета темы из Telegram
+                document.documentElement.style.setProperty('--tg-theme-bg-color', tg.backgroundColor || '#ffffff');
+                document.documentElement.style.setProperty('--tg-theme-text-color', tg.textColor || '#222222');
+                document.documentElement.style.setProperty('--tg-theme-button-color', tg.buttonColor || '#4d6073');
+                document.documentElement.style.setProperty('--tg-theme-button-text-color', tg.buttonTextColor || '#ffffff');
+                
+                // Настраиваем кнопку "Назад"
+                tg.BackButton.onClick(() => {
+                    // Получаем текущую активную секцию
+                    const activeSection = document.querySelector('.section.active');
+                    const activeSectionId = activeSection.id;
+                    
+                    // Если мы не на главной странице (дневник), возвращаемся к ней
+                    if (activeSectionId !== 'diary-section') {
+                        // Скрываем все секции
+                        document.querySelectorAll('.section').forEach(section => section.classList.remove('active'));
+                        
+                        // Показываем дневник
+                        document.getElementById('diary-section').classList.add('active');
+                        
+                        // Обновляем активный элемент навигации
+                        document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+                        document.querySelector('[data-section="diary-section"]').classList.add('active');
+                        
+                        // Скрываем кнопку "Назад"
+                        tg.BackButton.hide();
+                    }
+                });
+                
+                // Обработчик для навигации с учетом кнопки "Назад"
+                document.querySelectorAll('.nav-item').forEach(item => {
+                    item.addEventListener('click', function() {
+                        const sectionId = this.getAttribute('data-section');
+                        
+                        // Если переходим на страницу, отличную от дневника, показываем кнопку "Назад"
+                        if (sectionId !== 'diary-section') {
+                            tg.BackButton.show();
+                        } else {
+                            tg.BackButton.hide();
+                        }
+                    });
+                });
+            } else {
+                console.log('Telegram WebApp API не доступен');
+                // Если API не доступен, добавляем заглушку для тестирования
+                document.body.insertAdjacentHTML('afterbegin', 
+                    '<div class="alert alert-warning m-2" role="alert">' +
+                    'Приложение запущено вне Telegram. Некоторые функции могут быть недоступны.' +
+                    '</div>'
+                );
+            }
+        }
+
+        // Функция для отправки данных в бот
+        function sendDataToBot(data) {
+            if (window.Telegram && window.Telegram.WebApp) {
+                window.Telegram.WebApp.sendData(JSON.stringify(data));
+            } else {
+                console.log('Отправка данных в бот:', data);
+                alert('Данные отправлены в бот: ' + JSON.stringify(data));
+            }
+        }
+
+        // Функция для получения демо-данных
+        function getDemoData(type) {
+            switch (type) {
+                case 'diary':
+                    return {
+                        days: [
+                            {
+                                date: "Сегодня",
+                                total_calories: 1850,
+                                meals: [
+                                    {
+                                        time: "08:30",
+                                        name: "Завтрак",
+                                        calories: 450,
+                                        items: [
+                                            {name: "Овсянка на молоке", calories: 250},
+                                            {name: "Банан", calories: 105},
+                                            {name: "Кофе с молоком", calories: 95}
+                                        ]
+                                    },
+                                    {
+                                        time: "13:15",
+                                        name: "Обед",
+                                        calories: 680,
+                                        items: [
+                                            {name: "Куриный суп с вермишелью", calories: 320},
+                                            {name: "Гречка с курицей", calories: 310},
+                                            {name: "Салат из свежих овощей", calories: 50}
+                                        ]
+                                    },
+                                    {
+                                        time: "19:00",
+                                        name: "Ужин",
+                                        calories: 720,
+                                        items: [
+                                            {name: "Запеченная рыба", calories: 350},
+                                            {name: "Рис", calories: 200},
+                                            {name: "Овощи на пару", calories: 120},
+                                            {name: "Чай с медом", calories: 50}
+                                        ]
+                                    }
+                                ]
+                            },
+                            {
+                                date: "Вчера",
+                                total_calories: 1720,
+                                meals: [
+                                    {
+                                        time: "09:00",
+                                        name: "Завтрак",
+                                        calories: 420,
+                                        items: [
+                                            {name: "Творог с ягодами", calories: 280},
+                                            {name: "Зеленый чай", calories: 140}
+                                        ]
+                                    },
+                                    {
+                                        time: "14:00",
+                                        name: "Обед",
+                                        calories: 650,
+                                        items: [
+                                            {name: "Борщ", calories: 300},
+                                            {name: "Котлета с пюре", calories: 350}
+                                        ]
+                                    },
+                                    {
+                                        time: "18:30",
+                                        name: "Ужин",
+                                        calories: 650,
+                                        items: [
+                                            {name: "Тушеная капуста с мясом", calories: 450},
+                                            {name: "Кефир", calories: 200}
+                                        ]
+                                    }
+                                ]
+                            }
+                        ],
+                        user_targets: {
+                            calories: 2000,
+                            protein: 100,
+                            fat: 67,
+                            carb: 250,
+                            fiber: 25
+                        }
+                    };
+                case 'stats':
+                    return {
+                        general: {
+                            avg_calories: 1820,
+                            days_tracked: 14,
+                            adherence_percent: 82,
+                            weight_change: -1.5
+                        },
+                        nutrition_distribution: {
+                            protein: 25,
+                            fat: 30,
+                            carb: 45
+                        },
+                        top_products: [
+                            {name: "Куриная грудка", count: 12},
+                            {name: "Гречка", count: 9},
+                            {name: "Творог", count: 8},
+                            {name: "Яблоки", count: 7},
+                            {name: "Овсянка", count: 6}
+                        ],
+                        user_targets: {
+                            calories: 2000,
+                            protein: 100,
+                            fat: 67,
+                            carb: 250,
+                            fiber: 25
+                        }
+                    };
+                case 'recipes':
+                    return {
+                        categories: ["Все", "Завтраки", "Обеды", "Ужины", "Салаты", "Десерты"],
+                        recipes: [
+                            {
+                                title: "Овсянка с фруктами",
+                                category: "Завтрак",
+                                prep_time: "15 мин",
+                                calories: 320,
+                                description: "Питательная овсянка с яблоками, бананом и корицей. Идеальный вариант для здорового завтрака.",
+                                portions: 1,
+                                nutrition: {
+                                    calories: 320,
+                                    protein: 10,
+                                    fat: 5,
+                                    carb: 60,
+                                    fiber: 8
+                                }
+                            },
+                            {
+                                title: "Греческий салат",
+                                category: "Салат",
+                                prep_time: "20 мин",
+                                calories: 250,
+                                description: "Классический греческий салат с огурцами, помидорами, оливками, сыром фета и оливковым маслом.",
+                                portions: 2,
+                                nutrition: {
+                                    calories: 250,
+                                    protein: 8,
+                                    fat: 20,
+                                    carb: 12,
+                                    fiber: 4
+                                }
+                            },
+                            {
+                                title: "Куриная грудка с овощами",
+                                category: "Обед",
+                                prep_time: "40 мин",
+                                calories: 380,
+                                description: "Сочная куриная грудка, запеченная с сезонными овощами. Богатый белком и низкокалорийный обед.",
+                                portions: 2,
+                                nutrition: {
+                                    calories: 380,
+                                    protein: 35,
+                                    fat: 12,
+                                    carb: 30,
+                                    fiber: 6
+                                }
+                            }
+                        ]
+                    };
+                default:
+                    return {};
+            }
+        }
+    </script>
+</body>
+</html>
