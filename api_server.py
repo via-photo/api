@@ -67,8 +67,17 @@ async def verify_api_key(x_api_key: str = Header(None)):
         raise HTTPException(status_code=403, detail="Invalid API key")
     return x_api_key
 
-# Эндпоинты API
+# Корневой эндпоинт API
+@app.get("/api")
+async def api_root():
+    return {"status": "success", "message": "API работает", "timestamp": datetime.now().isoformat()}
 
+# Эндпоинт для проверки здоровья API
+@app.get("/api/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+# Эндпоинты API
 @app.get("/api/diary/{user_id}", response_model=Dict[str, Any])
 async def get_diary(user_id: str, api_key: str = Depends(verify_api_key)):
     """
@@ -76,6 +85,7 @@ async def get_diary(user_id: str, api_key: str = Depends(verify_api_key)):
     """
     try:
         # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import get_user_data, get_history
         
         # Получаем данные пользователя
@@ -97,7 +107,69 @@ async def get_diary(user_id: str, api_key: str = Depends(verify_api_key)):
         }
         
         # Группируем записи по дням
-        # (здесь нужно адаптировать код под структуру ваших данных)
+        days_dict = {}
+        for entry in history:
+            if entry.get("type") != "food":
+                continue
+                
+            # Получаем дату из timestamp
+            entry_date = entry.get("timestamp").date() if isinstance(entry.get("timestamp"), datetime) else datetime.fromisoformat(entry.get("timestamp")).date()
+            date_str = entry_date.strftime("%Y-%m-%d")
+            
+            # Инициализируем день, если его еще нет
+            if date_str not in days_dict:
+                days_dict[date_str] = {
+                    "date": entry_date.strftime("%d.%m.%Y"),
+                    "total_calories": 0,
+                    "meals": []
+                }
+            
+            # Извлекаем калории из ответа
+            calories = 0
+            match = re.search(r"(\d+(?:[.,]\d+)?) ккал", entry.get("response", ""))
+            if match:
+                calories = int(float(match.group(1).replace(",", ".")))
+            
+            # Извлекаем продукты из ответа
+            items = []
+            for line in entry.get("response", "").split("\n"):
+                if line.strip().startswith("•") or line.strip().startswith("-"):
+                    item_parts = line.strip()[1:].strip().split("–")
+                    if len(item_parts) >= 2:
+                        item_name = item_parts[0].strip()
+                        item_calories = 0
+                        cal_match = re.search(r"(\d+(?:[.,]\d+)?) ккал", item_parts[1])
+                        if cal_match:
+                            item_calories = int(float(cal_match.group(1).replace(",", ".")))
+                        items.append({"name": item_name, "calories": item_calories})
+            
+            # Добавляем прием пищи
+            meal_time = entry_date.strftime("%H:%M")
+            if "timestamp" in entry and isinstance(entry.get("timestamp"), datetime):
+                meal_time = entry.get("timestamp").strftime("%H:%M")
+            
+            meal_name = "Прием пищи"
+            if "завтрак" in entry.get("prompt", "").lower():
+                meal_name = "Завтрак"
+            elif "обед" in entry.get("prompt", "").lower():
+                meal_name = "Обед"
+            elif "ужин" in entry.get("prompt", "").lower():
+                meal_name = "Ужин"
+            elif "перекус" in entry.get("prompt", "").lower():
+                meal_name = "Перекус"
+            
+            days_dict[date_str]["meals"].append({
+                "time": meal_time,
+                "name": meal_name,
+                "calories": calories,
+                "items": items
+            })
+            
+            days_dict[date_str]["total_calories"] += calories
+        
+        # Сортируем дни по дате (от новых к старым)
+        sorted_days = sorted(days_dict.values(), key=lambda x: datetime.strptime(x["date"], "%d.%m.%Y"), reverse=True)
+        diary_data["days"] = sorted_days
         
         return {"status": "success", "data": diary_data}
     except Exception as e:
@@ -110,6 +182,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
     """
     try:
         # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import get_user_data, get_history, calculate_summary_text
         
         # Получаем данные пользователя
@@ -118,33 +191,48 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         # Получаем историю пользователя
         history = await get_history(user_id)
         
-        # Вычисляем статистику на основе истории
-        # Здесь нужно адаптировать код под структуру ваших данных
+        # Фильтруем записи о еде
+        food_entries = [entry for entry in history if entry.get("type") == "food"]
         
-        # Пример расчета средних калорий
-        total_calories = 0
-        days_tracked = 0
-        food_entries = []
-        
-        for entry in history:
-            if entry.get("type") == "food":
-                total_calories += entry.get("calories", 0)
-                food_entries.append(entry)
-                
         # Группируем по дням для подсчета дней
         days = {}
+        total_calories = 0
+        total_protein = 0
+        total_fat = 0
+        total_carb = 0
+        
         for entry in food_entries:
-            date = entry.get("date", "").split(" ")[0]  # Получаем только дату
-            if date:
-                days[date] = True
+            # Получаем дату из timestamp
+            entry_date = entry.get("timestamp").date() if isinstance(entry.get("timestamp"), datetime) else datetime.fromisoformat(entry.get("timestamp")).date()
+            date_str = entry_date.strftime("%Y-%m-%d")
+            
+            # Инициализируем день, если его еще нет
+            if date_str not in days:
+                days[date_str] = {
+                    "calories": 0,
+                    "protein": 0,
+                    "fat": 0,
+                    "carb": 0
+                }
+            
+            # Извлекаем БЖУ из ответа
+            match = re.search(r"(\d+(?:[.,]\d+)?) ккал, Белки: (\d+(?:[.,]\d+)?) г, Жиры: (\d+(?:[.,]\d+)?) г, Углеводы: (\d+(?:[.,]\d+)?) г", entry.get("response", ""))
+            if match:
+                kcal, prot, fat, carb = map(lambda x: float(x.replace(",", ".")), match.groups()[:4])
+                days[date_str]["calories"] += kcal
+                days[date_str]["protein"] += prot
+                days[date_str]["fat"] += fat
+                days[date_str]["carb"] += carb
                 
+                total_calories += kcal
+                total_protein += prot
+                total_fat += fat
+                total_carb += carb
+        
         days_tracked = len(days)
-        avg_calories = total_calories / days_tracked if days_tracked > 0 else 0
+        avg_calories = round(total_calories / days_tracked) if days_tracked > 0 else 0
         
         # Расчет распределения БЖУ
-        total_protein = sum(entry.get("protein", 0) for entry in food_entries)
-        total_fat = sum(entry.get("fat", 0) for entry in food_entries)
-        total_carb = sum(entry.get("carb", 0) for entry in food_entries)
         total_nutrients = total_protein + total_fat + total_carb
         
         protein_percent = round((total_protein / total_nutrients * 100) if total_nutrients > 0 else 0)
@@ -153,28 +241,37 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         
         # Расчет изменения веса
         weight_entries = [entry for entry in history if entry.get("type") == "weight"]
-        weight_entries.sort(key=lambda x: x.get("date", ""))
+        weight_entries.sort(key=lambda x: x.get("timestamp") if isinstance(x.get("timestamp"), datetime) else datetime.fromisoformat(x.get("timestamp")))
         weight_change = 0
         if len(weight_entries) >= 2:
-            first_weight = weight_entries[0].get("weight", 0)
-            last_weight = weight_entries[-1].get("weight", 0)
+            first_weight = float(weight_entries[0].get("weight", 0))
+            last_weight = float(weight_entries[-1].get("weight", 0))
             weight_change = last_weight - first_weight
         
         # Подсчет топ продуктов
         products = {}
         for entry in food_entries:
-            for item in entry.get("items", []):
-                product_name = item.get("name", "")
-                if product_name:
-                    products[product_name] = products.get(product_name, 0) + 1
+            for line in entry.get("response", "").split("\n"):
+                if line.strip().startswith("•") or line.strip().startswith("-"):
+                    item_parts = line.strip()[1:].strip().split("–")
+                    if len(item_parts) >= 1:
+                        product_name = item_parts[0].strip()
+                        products[product_name] = products.get(product_name, 0) + 1
         
         top_products = [{"name": name, "count": count} for name, count in sorted(products.items(), key=lambda x: x[1], reverse=True)[:5]]
         
+        # Расчет соблюдения нормы
+        target_kcal = user_data.get("target_kcal", 2000)
+        adherence_percent = round((avg_calories / target_kcal * 100) if target_kcal > 0 else 0)
+        if adherence_percent > 100:
+            adherence_percent = 200 - adherence_percent  # Инвертируем процент, если превышает 100%
+        adherence_percent = max(0, min(100, adherence_percent))  # Ограничиваем от 0 до 100
+        
         stats_data = {
             "general": {
-                "avg_calories": round(avg_calories),
+                "avg_calories": avg_calories,
                 "days_tracked": days_tracked,
-                "adherence_percent": round((avg_calories / user_data.get("target_kcal", 2000) * 100) if user_data.get("target_kcal", 0) > 0 else 0),
+                "adherence_percent": adherence_percent,
                 "weight_change": round(weight_change, 1)
             },
             "nutrition_distribution": {
@@ -203,29 +300,27 @@ async def get_recipes(user_id: str, api_key: str = Depends(verify_api_key)):
     """
     try:
         # Импортируем функции из bot.py
-        from bot import get_user_data, get_recipes_for_user
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import get_user_data
         
         # Получаем данные пользователя
         user_data = await get_user_data(user_id)
         
-        # Если в вашем боте есть функция для получения рецептов, используйте её
-        # recipes = await get_recipes_for_user(user_id)
-        
-        # Если такой функции нет, можно использовать статические данные из файла
+        # Инициализируем структуру данных для рецептов
         recipes_data = {
             "categories": ["Все", "Завтраки", "Обеды", "Ужины", "Салаты", "Десерты"],
             "recipes": []
         }
         
+        # Путь к файлу рецептов
+        recepti_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "recepti.txt")
+        
         # Чтение рецептов из файла
         try:
-            with open("recepti.txt", "r", encoding="utf-8") as f:
+            with open(recepti_path, "r", encoding="utf-8") as f:
                 content = f.read()
                 
             # Парсинг рецептов из файла
-            # Адаптируйте этот код под формат вашего файла recepti.txt
-            import re
-            
             recipe_blocks = re.split(r'\n\s*\n', content)
             for block in recipe_blocks:
                 if not block.strip():
@@ -236,17 +331,17 @@ async def get_recipes(user_id: str, api_key: str = Depends(verify_api_key)):
                     continue
                     
                 title = lines[0].strip()
-                category = "Обед"  # По умолчанию
+                category = "Обеды"  # По умолчанию
                 
                 # Определяем категорию по ключевым словам
                 if any(word in title.lower() for word in ["завтрак", "каша", "омлет", "яичница"]):
-                    category = "Завтрак"
+                    category = "Завтраки"
                 elif any(word in title.lower() for word in ["салат", "закуска"]):
-                    category = "Салат"
+                    category = "Салаты"
                 elif any(word in title.lower() for word in ["десерт", "торт", "пирог", "сладкое"]):
-                    category = "Десерт"
+                    category = "Десерты"
                 elif any(word in title.lower() for word in ["ужин", "легкое"]):
-                    category = "Ужин"
+                    category = "Ужины"
                 
                 # Оценка времени приготовления
                 prep_time = "30 мин"
@@ -302,10 +397,37 @@ async def add_meal(meal_data: MealData, api_key: str = Depends(verify_api_key)):
     Добавление приема пищи
     """
     try:
-        # В реальном приложении здесь будет обращение к функциям из bot.py
-        # для добавления приема пищи в историю пользователя
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import add_history_entry
         
-        # Пример ответа
+        # Формируем текст для добавления в историю
+        items_text = "\n".join([f"• {item['name']} – {item.get('weight', 100)} г (~{item.get('calories', 0)} ккал)" for item in meal_data.items])
+        total_calories = sum(item.get('calories', 0) for item in meal_data.items)
+        
+        # Расчет БЖУ
+        total_protein = sum(item.get('protein', 0) for item in meal_data.items)
+        total_fat = sum(item.get('fat', 0) for item in meal_data.items)
+        total_carb = sum(item.get('carb', 0) for item in meal_data.items)
+        total_fiber = sum(item.get('fiber', 0) for item in meal_data.items)
+        
+        response_text = f"🍽️ {meal_data.meal_name}:\n{items_text}\n\n📊 Итого: {total_calories} ккал, Белки: {total_protein} г, Жиры: {total_fat} г, Углеводы: {total_carb} г, Клетчатка: {total_fiber} г"
+        
+        # Добавляем запись в историю
+        entry = {
+            "prompt": f"Добавлен прием пищи: {meal_data.meal_name}",
+            "response": response_text,
+            "timestamp": datetime.now(),
+            "type": "food",
+            "data": {
+                "meal_name": meal_data.meal_name,
+                "meal_time": meal_data.meal_time,
+                "items": meal_data.items
+            }
+        }
+        
+        await add_history_entry(meal_data.user_id, entry)
+        
         return {
             "status": "success", 
             "message": f"Прием пищи '{meal_data.meal_name}' успешно добавлен для пользователя {meal_data.user_id}"
