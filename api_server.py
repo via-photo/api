@@ -19,11 +19,11 @@ app = FastAPI(title="Telegram Bot WebApp API",
 # Настройка CORS для доступа с Netlify
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # В продакшене заменить на конкретный домен Netlify
+    allow_origins=["https://reliable-toffee-e14334.netlify.app"],  # Ваш домен на Netlify
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
+ )
 
 # Модели данных
 class MealEntry(BaseModel):
