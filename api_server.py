@@ -13,6 +13,9 @@ import re
 # Загрузка переменных окружения
 load_dotenv()
 
+# Установка фиксированного API-ключа для безопасности
+FIXED_API_KEY = "telegram_webapp_secure_key_2025"
+
 app = FastAPI(title="Telegram Bot WebApp API", 
               description="API для интеграции WebApp с Telegram ботом трекера питания")
 
@@ -61,9 +64,12 @@ class Recipe(BaseModel):
     portions: int
     nutrition: NutritionStats
 
-# Функция для проверки API-ключа (в реальном приложении должна быть более надежной)
+# Функция для проверки API-ключа
 async def verify_api_key(x_api_key: str = Header(None)):
-    if not x_api_key or x_api_key != os.getenv("API_KEY", "test_api_key"):
+    # Проверяем API-ключ из заголовка
+    if not x_api_key or x_api_key != FIXED_API_KEY:
+        # Для отладки - выводим полученный ключ
+        print(f"Received API key: {x_api_key}, Expected: {FIXED_API_KEY}")
         raise HTTPException(status_code=403, detail="Invalid API key")
     return x_api_key
 
@@ -113,7 +119,20 @@ async def get_diary(user_id: str, api_key: str = Depends(verify_api_key)):
                 continue
                 
             # Получаем дату из timestamp
-            entry_date = entry.get("timestamp").date() if isinstance(entry.get("timestamp"), datetime) else datetime.fromisoformat(entry.get("timestamp")).date()
+            entry_date = None
+            timestamp = entry.get("timestamp")
+            if isinstance(timestamp, datetime):
+                entry_date = timestamp.date()
+            elif isinstance(timestamp, str):
+                try:
+                    entry_date = datetime.fromisoformat(timestamp).date()
+                except ValueError:
+                    # Если не удалось распарсить дату, пропускаем запись
+                    continue
+            else:
+                # Если timestamp отсутствует или имеет неизвестный формат, пропускаем запись
+                continue
+                
             date_str = entry_date.strftime("%Y-%m-%d")
             
             # Инициализируем день, если его еще нет
@@ -173,6 +192,7 @@ async def get_diary(user_id: str, api_key: str = Depends(verify_api_key)):
         
         return {"status": "success", "data": diary_data}
     except Exception as e:
+        print(f"Error in get_diary: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/stats/{user_id}", response_model=Dict[str, Any])
@@ -203,7 +223,20 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         
         for entry in food_entries:
             # Получаем дату из timestamp
-            entry_date = entry.get("timestamp").date() if isinstance(entry.get("timestamp"), datetime) else datetime.fromisoformat(entry.get("timestamp")).date()
+            entry_date = None
+            timestamp = entry.get("timestamp")
+            if isinstance(timestamp, datetime):
+                entry_date = timestamp.date()
+            elif isinstance(timestamp, str):
+                try:
+                    entry_date = datetime.fromisoformat(timestamp).date()
+                except ValueError:
+                    # Если не удалось распарсить дату, пропускаем запись
+                    continue
+            else:
+                # Если timestamp отсутствует или имеет неизвестный формат, пропускаем запись
+                continue
+                
             date_str = entry_date.strftime("%Y-%m-%d")
             
             # Инициализируем день, если его еще нет
@@ -291,6 +324,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         
         return {"status": "success", "data": stats_data}
     except Exception as e:
+        print(f"Error in get_stats: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/recipes/{user_id}", response_model=Dict[str, Any])
@@ -382,6 +416,7 @@ async def get_recipes(user_id: str, api_key: str = Depends(verify_api_key)):
         
         return {"status": "success", "data": recipes_data}
     except Exception as e:
+        print(f"Error in get_recipes: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -433,6 +468,7 @@ async def add_meal(meal_data: MealData, api_key: str = Depends(verify_api_key)):
             "message": f"Прием пищи '{meal_data.meal_name}' успешно добавлен для пользователя {meal_data.user_id}"
         }
     except Exception as e:
+        print(f"Error in add_meal: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/")
