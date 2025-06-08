@@ -512,33 +512,54 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         total_fat = 0
         total_carb = 0
         
-        for entry in food_entries:
-            # Получаем дату из timestamp
-            entry_date = entry.get("timestamp").date() if isinstance(entry.get("timestamp"), datetime) else datetime.fromisoformat(entry.get("timestamp")).date()
-            date_str = entry_date.strftime("%Y-%m-%d")
-            
-            # Инициализируем день, если его еще нет
-            if date_str not in days:
-                days[date_str] = {
-                    "calories": 0,
-                    "protein": 0,
-                    "fat": 0,
-                    "carb": 0
-                }
-            
-            # Извлекаем БЖУ из ответа
-            match = re.search(r"(\d+(?:[.,]\d+)?) ккал, Белки: (\d+(?:[.,]\d+)?) г, Жиры: (\d+(?:[.,]\d+)?) г, Углеводы: (\d+(?:[.,]\d+)?) г", entry.get("response", ""))
-            if match:
-                kcal, prot, fat, carb = map(lambda x: float(x.replace(",", ".")), match.groups()[:4])
-                days[date_str]["calories"] += kcal
-                days[date_str]["protein"] += prot
-                days[date_str]["fat"] += fat
-                days[date_str]["carb"] += carb
+        print(f"Начинаем обработку {len(food_entries)} записей о еде")
+        
+        for i, entry in enumerate(food_entries):
+            try:
+                # Получаем дату из timestamp
+                timestamp = entry.get("timestamp")
+                if isinstance(timestamp, datetime):
+                    entry_date = timestamp.date()
+                else:
+                    entry_date = datetime.fromisoformat(str(timestamp)).date()
+                date_str = entry_date.strftime("%Y-%m-%d")
                 
-                total_calories += kcal
-                total_protein += prot
-                total_fat += fat
-                total_carb += carb
+                # Инициализируем день, если его еще нет
+                if date_str not in days:
+                    days[date_str] = {
+                        "calories": 0,
+                        "protein": 0,
+                        "fat": 0,
+                        "carb": 0
+                    }
+                
+                # Извлекаем БЖУ из ответа
+                response = entry.get("response", "")
+                match = re.search(r"(\d+(?:[.,]\d+)?) ккал, Белки: (\d+(?:[.,]\d+)?) г, Жиры: (\d+(?:[.,]\d+)?) г, Углеводы: (\d+(?:[.,]\d+)?) г", response)
+                
+                if match:
+                    kcal, prot, fat, carb = map(lambda x: float(x.replace(",", ".")), match.groups()[:4])
+                    days[date_str]["calories"] += kcal
+                    days[date_str]["protein"] += prot
+                    days[date_str]["fat"] += fat
+                    days[date_str]["carb"] += carb
+                    
+                    total_calories += kcal
+                    total_protein += prot
+                    total_fat += fat
+                    total_carb += carb
+                    
+                    if i < 5:  # Логируем первые 5 записей для отладки
+                        print(f"Запись {i+1}: {kcal} ккал, {prot}г белков, {fat}г жиров, {carb}г углеводов")
+                else:
+                    if i < 5:  # Логируем первые 5 записей без БЖУ
+                        print(f"Запись {i+1}: БЖУ не найдены в ответе: {response[:100]}...")
+                        
+            except Exception as e:
+                print(f"Ошибка обработки записи {i+1}: {e}")
+                continue
+        
+        print(f"Обработано записей. Всего калорий: {total_calories}, дней: {len(days)}")
         
         days_tracked = len(days)
         avg_calories = round(total_calories / days_tracked) if days_tracked > 0 else 0
