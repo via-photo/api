@@ -436,44 +436,67 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
             # Импортируем функции из bot.py
             sys.path.append(os.path.dirname(os.path.abspath(__file__)))
             from bot import get_user_data, get_history, calculate_summary_text
+            print(f"Успешный импорт bot.py для пользователя {user_id}")
         except ImportError as import_error:
             print(f"Ошибка импорта bot.py в get_stats: {import_error}")
-            # Возвращаем тестовые данные если bot.py недоступен
-            return {
-                "status": "success", 
-                "data": {
-                    "general": {
-                        "avg_calories": 1800,
-                        "days_tracked": 15,
-                        "adherence_percent": 85,
-                        "weight_change": -2.5
-                    },
-                    "nutrition_distribution": {
-                        "protein": 25,
-                        "fat": 30,
-                        "carb": 45
-                    },
-                    "user_targets": {
-                        "calories": 2000,
-                        "protein": 100,
-                        "fat": 67,
-                        "carb": 250,
-                        "fiber": 25
-                    },
-                    "top_products": [
-                        {"name": "Куриная грудка", "frequency": 12, "calories": 165}
-                    ]
-                }
-            }
+            # НЕ возвращаем тестовые данные, а пробуем продолжить
+            # return тестовые данные - УБИРАЕМ ЭТО
+            pass
         
         # Получаем данные пользователя
-        user_data = await get_user_data(user_id)
+        try:
+            user_data = await get_user_data(user_id)
+            print(f"Получены данные пользователя {user_id}: {user_data}")
+        except Exception as e:
+            print(f"Ошибка получения данных пользователя {user_id}: {e}")
+            # Используем значения по умолчанию
+            user_data = {
+                "target_kcal": 2000,
+                "target_protein": 100,
+                "target_fat": 67,
+                "target_carb": 250,
+                "target_fiber": 25,
+                "utc_offset": 0
+            }
         
         # Получаем историю пользователя
-        history = await get_history(user_id)
+        try:
+            history = await get_history(user_id)
+            print(f"Получена история пользователя {user_id}: {len(history)} записей")
+        except Exception as e:
+            print(f"Ошибка получения истории пользователя {user_id}: {e}")
+            history = []
         
         # Фильтруем записи о еде
         food_entries = [entry for entry in history if entry.get("type") == "food"]
+        print(f"Найдено записей о еде: {len(food_entries)}")
+        
+        # Если нет записей о еде, возвращаем базовые данные
+        if not food_entries:
+            print("Нет записей о еде, возвращаем базовые данные")
+            stats_data = {
+                "general": {
+                    "avg_calories": 0,
+                    "days_tracked": 0,
+                    "adherence_percent": 0,
+                    "weight_change": 0
+                },
+                "nutrition_distribution": {
+                    "protein": 33,
+                    "fat": 33,
+                    "carb": 34
+                },
+                "top_products": [],
+                "user_targets": {
+                    "calories": user_data.get("target_kcal", 2000),
+                    "protein": user_data.get("target_protein", 100),
+                    "fat": user_data.get("target_fat", 67),
+                    "carb": user_data.get("target_carb", 250),
+                    "fiber": user_data.get("target_fiber", 25)
+                },
+                "today_summary": None
+            }
+            return {"status": "success", "data": stats_data}
         
         # Группируем по дням для подсчета дней
         days = {}
