@@ -8,6 +8,68 @@ from dotenv import load_dotenv
 import sys
 import json
 from datetime import datetime, timedelta, date, timezone
+
+
+from fastapi import Query
+from fastapi.responses import JSONResponse
+
+@app.get("/api/stats/{user_id}", response_model=Dict[str, Any])
+async def get_user_stats(user_id: str,
+                         start_date: str = Query(...),
+                         end_date: str = Query(...)):
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d").date()
+        end = datetime.strptime(end_date, "%Y-%m-%d").date()
+
+        if start > end:
+            return JSONResponse(status_code=400, content={"error": "Дата начала должна быть раньше даты окончания."})
+
+        async with async_session() as session:
+            result = await session.execute(
+                select(History).where(
+                    History.user_id == user_id,
+                    History.date >= start,
+                    History.date <= end
+                )
+            )
+            entries = result.scalars().all()
+
+        if not entries:
+            return {"summary": "📭 Нет данных за этот период."}
+
+        total_kcal = total_prot = total_fat = total_carb = total_fiber = 0.0
+
+        for entry in entries:
+            match = re.search(r"(\d+(?:[.,]\d+)?) ккал, Белки: (\d+(?:[.,]\d+)?) г, Жиры: (\d+(?:[.,]\d+)?) г, Углеводы: (\d+(?:[.,]\д+)?) г, Клетчатка: (\д+(?:[.,]\д+)?) г", entry.response)
+            if match:
+                kcal, prot, fat, carb, fiber = map(lambda x: float(x.replace(",", ".")), match.groups())
+                total_kcal += kcal
+                total_prot += prot
+                total_fat += fat
+                total_carb += carb
+                total_fiber += fiber
+
+        total_kcal = round(total_kcal)
+        total_prot = round(total_prot)
+        total_fat = round(total_fat)
+        total_carb = round(total_carb)
+        total_fiber = round(total_fiber)
+
+        avg_calories = round(total_kcal / len(entries))
+
+        return {
+            "total_kcal": total_kcal,
+            "total_prot": total_prot,
+            "total_fat": total_fat,
+            "total_carb": total_carb,
+            "total_fiber": total_fiber,
+            "average_calories": avg_calories,
+            "days_tracked": len(entries),
+            "adherence": len(entries) / (end - start).days * 100
+        }
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": f"Ошибка при расчёте данных: {str(e)}"})
+
 import re
 
 # Загрузка переменных окружения
