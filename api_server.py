@@ -105,8 +105,8 @@ async def api_root():
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
-# НОВЫЙ эндпоинт для получения данных дневника
-@app.get("/api/diary/{user_id}", response_model=Dict[str, Any])
+# Эндпоинт для получения данных дневника с поддержкой дат
+@app.get("/api/diary/{user_id}")
 async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: str = Depends(verify_api_key)):
     """
     Получение данных дневника питания для пользователя за конкретную дату
@@ -360,7 +360,7 @@ async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: 
         raise HTTPException(status_code=500, detail=str(e))
 
 # Новый эндпоинт для получения итогов дня
-@app.get("/api/day-summary/{user_id}", response_model=Dict[str, Any])
+@app.get("/api/day-summary/{user_id}")
 async def get_day_summary(user_id: str, date_str: Optional[str] = None, api_key: str = Depends(verify_api_key)):
     """
     Получение итогов дня для пользователя
@@ -550,137 +550,7 @@ async def get_day_summary(user_id: str, date_str: Optional[str] = None, api_key:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ОРИГИНАЛЬНЫЕ эндпоинты (сохраняем все как было)
-@app.get("/api/diary/{user_id}", response_model=Dict[str, Any])
-async def get_diary(user_id: str, api_key: str = Depends(verify_api_key)):
-    """
-    Получение данных дневника питания пользователя
-    """
-    try:
-        # Добавляем обработку ошибок импорта
-        try:
-            # Импортируем функции из bot.py
-            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-            from bot import get_user_data, get_history
-        except ImportError as import_error:
-            print(f"Ошибка импорта bot.py в get_diary: {import_error}")
-            # Возвращаем тестовые данные если bot.py недоступен
-            return {
-                "status": "success", 
-                "data": {
-                    "days": [
-                        {
-                            "date": "06.08.2025",
-                            "total_calories": 1800,
-                            "meals": [
-                                {
-                                    "time": "08:30",
-                                    "name": "Завтрак",
-                                    "calories": 400,
-                                    "items": [{"name": "Овсянка", "calories": 150}]
-                                }
-                            ]
-                        }
-                    ],
-                    "user_targets": {
-                        "calories": 2000,
-                        "protein": 100,
-                        "fat": 67,
-                        "carb": 250,
-                        "fiber": 25
-                    }
-                }
-            }
-        
-        # Получаем данные пользователя
-        user_data = await get_user_data(user_id)
-        
-        # Получаем историю пользователя
-        history = await get_history(user_id)
-        
-        # Преобразуем данные в нужный формат
-        diary_data = {
-            "days": [],
-            "user_targets": {
-                "calories": user_data.get("target_kcal", 2000),
-                "protein": user_data.get("target_protein", 100),
-                "fat": user_data.get("target_fat", 67),
-                "carb": user_data.get("target_carb", 250),
-                "fiber": user_data.get("target_fiber", 25)
-            }
-        }
-        
-        # Группируем записи по дням
-        days_dict = {}
-        for entry in history:
-            if entry.get("type") != "food":
-                continue
-                
-            # Получаем дату из timestamp
-            entry_date = entry.get("timestamp").date() if isinstance(entry.get("timestamp"), datetime) else datetime.fromisoformat(entry.get("timestamp")).date()
-            date_str = entry_date.strftime("%Y-%m-%d")
-            
-            # Инициализируем день, если его еще нет
-            if date_str not in days_dict:
-                days_dict[date_str] = {
-                    "date": entry_date.strftime("%d.%m.%Y"),
-                    "total_calories": 0,
-                    "meals": []
-                }
-            
-            # Извлекаем калории из ответа
-            calories = 0
-            match = re.search(r"(\d+(?:[.,]\d+)?) ккал", entry.get("response", ""))
-            if match:
-                calories = int(float(match.group(1).replace(",", ".")))
-            
-            # Извлекаем продукты из ответа
-            items = []
-            for line in entry.get("response", "").split("\n"):
-                if line.strip().startswith("•") or line.strip().startswith("-"):
-                    item_parts = line.strip()[1:].strip().split("–")
-                    if len(item_parts) >= 2:
-                        item_name = item_parts[0].strip()
-                        item_calories = 0
-                        cal_match = re.search(r"(\d+(?:[.,]\d+)?) ккал", item_parts[1])
-                        if cal_match:
-                            item_calories = int(float(cal_match.group(1).replace(",", ".")))
-                        items.append({"name": item_name, "calories": item_calories})
-            
-            # Добавляем прием пищи
-            meal_time = entry_date.strftime("%H:%M")
-            if "timestamp" in entry and isinstance(entry.get("timestamp"), datetime):
-                meal_time = entry.get("timestamp").strftime("%H:%M")
-            
-            meal_name = "Прием пищи"
-            if "завтрак" in entry.get("prompt", "").lower():
-                meal_name = "Завтрак"
-            elif "обед" in entry.get("prompt", "").lower():
-                meal_name = "Обед"
-            elif "ужин" in entry.get("prompt", "").lower():
-                meal_name = "Ужин"
-            elif "перекус" in entry.get("prompt", "").lower():
-                meal_name = "Перекус"
-            
-            days_dict[date_str]["meals"].append({
-                "time": meal_time,
-                "name": meal_name,
-                "calories": calories,
-                "items": items
-            })
-            
-            days_dict[date_str]["total_calories"] += calories
-        
-        # Сортируем дни по дате (от новых к старым)
-        sorted_days = sorted(days_dict.values(), key=lambda x: datetime.strptime(x["date"], "%d.%m.%Y"), reverse=True)
-        diary_data["days"] = sorted_days[:7]  # Последние 7 дней
-        
-        return {"status": "success", "data": diary_data}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/profile/{user_id}", response_model=Dict[str, Any])
+@app.get("/api/profile/{user_id}")
 async def get_profile(user_id: str, api_key: str = Depends(verify_api_key)):
     """
     Получение профиля пользователя
@@ -741,7 +611,7 @@ async def update_profile(user_id: str, profile_data: ProfileUpdateData, api_key:
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/stats/{user_id}", response_model=Dict[str, Any])
+@app.get("/api/stats/{user_id}")
 async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
     """
     Получение статистики пользователя
@@ -835,7 +705,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/recipes/{user_id}", response_model=Dict[str, Any])
+@app.get("/api/recipes/{user_id}")
 async def get_recipes(user_id: str, api_key: str = Depends(verify_api_key)):
     """
     Получение рецептов для пользователя
