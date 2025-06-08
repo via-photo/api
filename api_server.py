@@ -1257,39 +1257,50 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
-@app.get("/api/summary/{user_id}/{date_str}")
-async def get_summary(user_id: str, date_str: str):
-    target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-    if target_date > datetime.now().date():
-        return {"summary": "🔮 Будущий день, данных нет."}
+@app.get("/api/daily-summary/{user_id}/{start_date}/{end_date}")
+async def get_daily_summary(user_id: str, start_date: str, end_date: str):
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d").date()
+        end = datetime.strptime(end_date, "%Y-%m-%d").date()
 
-    async with async_session() as session:
-        result = await session.execute(
-            select(History).where(
-                History.user_id == user_id,
-                History.date == target_date
+        async with async_session() as session:
+            result = await session.execute(
+                select(History).where(
+                    History.user_id == user_id,
+                    History.date >= start,
+                    History.date <= end
+                )
             )
-        )
-        entries = result.scalars().all()
+            entries = result.scalars().all()
 
-    if not entries:
-        return {"summary": "📭 В этот день не было добавлено ни одного блюда."}
+        if not entries:
+            return {"summary": "📭 За указанный период нет данных."}
 
-    total_kcal = total_prot = total_fat = total_carb = total_fiber = 0.0
-    for entry in entries:
-        match = re.search(r"(\d+(?:[.,]\d+)?) ккал, Белки: (\d+(?:[.,]\d+)?) г, Жиры: (\d+(?:[.,]\д+)?) г, Углеводы: (\д+(?:[.,]\д+)?) г, Клетчатка: (\д+(?:[.,]\д+)?) г", entry.response)
-        if match:
-            kcal, prot, fat, carb, fiber = map(lambda x: float(x.replace(",", ".")), match.groups())
-            total_kcal += kcal
-            total_prot += prot
-            total_fat += fat
-            total_carb += carb
-            total_fiber += fiber
-
-    return {
-        "total_kcal": round(total_kcal),
-        "total_prot": round(total_prot),
-        "total_fat": round(total_fat),
-        "total_carb": round(total_carb),
-        "total_fiber": round(total_fiber)
-    }
+        daily_data = {}
+        for entry in entries:
+            entry_date = entry.date
+            if entry_date not in daily_data:
+                daily_data[entry_date] = {'kcal': 0, 'protein': 0, 'fat': 0, 'carb': 0, 'fiber': 0}
+            
+            match = re.search(r"(\d+(?:[.,]\d+)?) ккал, Белки: (\d+(?:[.,]\d+)?) г, Жиры: (\d+(?:[.,]\d+)?) г, Углеводы: (\д+(?:[.,]\д+)?) г, Клетчатка: (\д+(?:[.,]\д+)?) г", entry.response)
+            if match:
+                kcal, prot, fat, carb, fiber = map(lambda x: float(x.replace(',', '.')), match.groups())
+                daily_data[entry_date]['kcal'] += kcal
+                daily_data[entry_date]['protein'] += prot
+                daily_data[entry_date]['fat'] += fat
+                daily_data[entry_date]['carb'] += carb
+                daily_data[entry_date]['fiber'] += fiber
+        
+        return {
+            "daily_data": daily_data,
+            "average": {
+                "kcal": round(sum(d['kcal'] for d in daily_data.values()) / len(daily_data)),
+                "protein": round(sum(d['protein'] for d in daily_data.values()) / len(daily_data)),
+                "fat": round(sum(d['fat'] for d in daily_data.values()) / len(daily_data)),
+                "carb": round(sum(d['carb'] for d in daily_data.values()) / len(daily_data)),
+                "fiber": round(sum(d['fiber'] for d in daily_data.values()) / len(daily_data)),
+            },
+            "days_tracked": len(daily_data)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при расчёте данных: {str(e)}")
