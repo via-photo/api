@@ -467,9 +467,16 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
             print(f"Ошибка получения истории пользователя {user_id}: {e}")
             history = []
         
-        # Фильтруем записи о еде
-        food_entries = [entry for entry in history if entry.get("type") == "food"]
+        # Фильтруем записи о еде (photo и text типы содержат информацию о еде)
+        food_entries = [entry for entry in history if entry.get("type") in ["photo", "text"]]
         print(f"Найдено записей о еде: {len(food_entries)}")
+        
+        # Логируем типы записей для отладки
+        types_count = {}
+        for entry in history:
+            entry_type = entry.get("type", "unknown")
+            types_count[entry_type] = types_count.get(entry_type, 0) + 1
+        print(f"Типы записей в истории: {types_count}")
         
         # Если нет записей о еде, возвращаем базовые данные
         if not food_entries:
