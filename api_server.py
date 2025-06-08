@@ -552,7 +552,92 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         user_offset = user_data.get("utc_offset", 0)
         user_tz = timezone(timedelta(hours=user_offset))
         today = datetime.now(user_tz).date()
-        today_summary = await get_day_summary(user_id, today.strftime("%Y-%m-%d"))
+        
+        # Вызываем функцию напрямую без API endpoint
+        try:
+            # Получаем данные дневника за сегодня
+            entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == today]
+            
+            if entries_today:
+                # Подсчитываем общие значения за сегодня
+                today_kcal = today_prot = today_fat = today_carb = today_fiber = 0.0
+                today_meals = []
+                
+                for i, entry in enumerate(entries_today, start=1):
+                    kcal = prot = fat = carb = fiber = 0.0
+                    
+                    # Извлекаем БЖУ из ответа
+                    match = re.search(
+                        r'Итого:\s*[~≈]?\s*(\d+\.?\d*)\s*ккал.*?'
+                        r'Белки[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
+                        r'Жиры[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
+                        r'Углеводы[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
+                        r'Клетчатка[:\-]?\s*([~≈]?\s*\d+\.?\d*)\s*г',
+                        entry['response'], flags=re.IGNORECASE | re.DOTALL
+                    )
+                    
+                    if match:
+                        kcal, prot, fat, carb = map(lambda x: round(float(x)), match.groups()[:4])
+                        fiber = round(float(match.groups()[4]), 1)
+                    
+                    today_kcal += kcal
+                    today_prot += prot
+                    today_fat += fat
+                    today_carb += carb
+                    today_fiber += fiber
+                    
+                    # Извлекаем продукты из ответа
+                    lines = entry['response'].splitlines()
+                    food_lines = [line for line in lines if line.strip().startswith(("•", "-"))]
+                    short_desc = ", ".join([re.sub(r'^[•\-]\s*', '', line).split("–")[0].strip() for line in food_lines]) or "Без описания"
+                    
+                    today_meals.append({
+                        "time": entry['timestamp'].strftime("%H:%M"),
+                        "description": short_desc,
+                        "calories": kcal
+                    })
+                
+                # Получаем целевые значения
+                target_kcal = int(user_data.get("target_kcal", 2000))
+                target_protein = int(user_data.get("target_protein", 100))
+                target_fat = int(user_data.get("target_fat", 67))
+                target_carb = int(user_data.get("target_carb", 250))
+                target_fiber = int(user_data.get("target_fiber", 25))
+                
+                today_summary_data = {
+                    "date": today.strftime("%Y-%m-%d"),
+                    "total_calories": int(today_kcal),
+                    "total_protein": int(today_prot),
+                    "total_fat": int(today_fat),
+                    "total_carb": int(today_carb),
+                    "total_fiber": round(today_fiber, 1),
+                    "meals": today_meals,
+                    "remaining_calories": max(0, target_kcal - today_kcal),
+                    "remaining_protein": max(0, target_protein - today_prot),
+                    "remaining_fat": max(0, target_fat - today_fat),
+                    "remaining_carb": max(0, target_carb - today_carb),
+                    "remaining_fiber": max(0, round(target_fiber - today_fiber, 1)),
+                    "warnings": []
+                }
+            else:
+                today_summary_data = {
+                    "date": today.strftime("%Y-%m-%d"),
+                    "total_calories": 0,
+                    "total_protein": 0,
+                    "total_fat": 0,
+                    "total_carb": 0,
+                    "total_fiber": 0,
+                    "meals": [],
+                    "remaining_calories": user_data.get("target_kcal", 2000),
+                    "remaining_protein": user_data.get("target_protein", 100),
+                    "remaining_fat": user_data.get("target_fat", 67),
+                    "remaining_carb": user_data.get("target_carb", 250),
+                    "remaining_fiber": user_data.get("target_fiber", 25),
+                    "warnings": []
+                }
+        except Exception as e:
+            print(f"Ошибка при получении итогов дня: {e}")
+            today_summary_data = None
         
         stats_data = {
             "general": {
@@ -574,7 +659,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                 "carb": user_data.get("target_carb", 250),
                 "fiber": user_data.get("target_fiber", 25)
             },
-            "today_summary": today_summary.get("data") if today_summary else None
+            "today_summary": today_summary_data
         }
         
         return {"status": "success", "data": stats_data}
