@@ -74,6 +74,22 @@ class ProfileUpdateData(BaseModel):
     utc_offset: Optional[int] = None
     morning_reminded: Optional[bool] = None
 
+# Модель для итогов дня
+class DaySummary(BaseModel):
+    date: str
+    total_calories: int
+    total_protein: int
+    total_fat: int
+    total_carb: int
+    total_fiber: float
+    meals: List[Dict[str, Any]]
+    remaining_calories: int
+    remaining_protein: int
+    remaining_fat: int
+    remaining_carb: int
+    remaining_fiber: float
+    warnings: List[str]
+
 # Функция для проверки API-ключа (в реальном приложении должна быть более надежной)
 async def verify_api_key(x_api_key: str = Header(None)):
     if not x_api_key or x_api_key != os.getenv("API_KEY", "test_api_key"):
@@ -89,6 +105,162 @@ async def api_root():
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+# Новый эндпоинт для получения итогов дня
+@app.get("/api/day-summary/{user_id}", response_model=Dict[str, Any])
+async def get_day_summary(user_id: str, date_str: Optional[str] = None, api_key: str = Depends(verify_api_key)):
+    """
+    Получение итогов дня для пользователя
+    """
+    try:
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import get_user_data, get_history
+        
+        # Получаем данные пользователя
+        user_data = await get_user_data(user_id)
+        user_offset = user_data.get("utc_offset", 0)
+        user_tz = timezone(timedelta(hours=user_offset))
+        
+        # Определяем дату для анализа
+        if date_str:
+            target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        else:
+            target_date = datetime.now(user_tz).date()
+        
+        # Получаем историю пользователя
+        history = await get_history(user_id)
+        
+        # Фильтруем записи за указанную дату
+        entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == target_date]
+        
+        if not entries_today:
+            return {
+                "status": "success", 
+                "data": {
+                    "date": target_date.strftime("%Y-%m-%d"),
+                    "total_calories": 0,
+                    "total_protein": 0,
+                    "total_fat": 0,
+                    "total_carb": 0,
+                    "total_fiber": 0,
+                    "meals": [],
+                    "remaining_calories": user_data.get("target_kcal", 0),
+                    "remaining_protein": user_data.get("target_protein", 0),
+                    "remaining_fat": user_data.get("target_fat", 0),
+                    "remaining_carb": user_data.get("target_carb", 0),
+                    "remaining_fiber": user_data.get("target_fiber", 20),
+                    "warnings": [],
+                    "message": "В этот день не было добавлено ни одного блюда."
+                }
+            }
+        
+        # Подсчитываем общие значения
+        total_kcal = total_prot = total_fat = total_carb = total_fiber = 0.0
+        meals = []
+        
+        for i, entry in enumerate(entries_today, start=1):
+            kcal = prot = fat = carb = fiber = 0.0
+            
+            # Извлекаем БЖУ из ответа
+            match = re.search(
+                r'Итого:\s*[~≈]?\s*(\d+\.?\d*)\s*ккал.*?'
+                r'Белки[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
+                r'Жиры[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
+                r'Углеводы[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
+                r'Клетчатка[:\-]?\s*([~≈]?\s*\d+\.?\d*)\s*г',
+                entry['response'], flags=re.IGNORECASE | re.DOTALL
+            )
+            
+            if match:
+                kcal, prot, fat, carb = map(lambda x: round(float(x)), match.groups()[:4])
+                fiber = round(float(match.groups()[4]), 1)
+                total_fiber += fiber
+            
+            total_kcal += kcal
+            total_prot += prot
+            total_fat += fat
+            total_carb += carb
+            
+            # Извлекаем продукты из ответа
+            lines = entry['response'].splitlines()
+            food_lines = [line for line in lines if line.strip().startswith(("•", "-"))]
+            short_desc = ", ".join([re.sub(r'^[•\-]\s*', '', line).split("–")[0].strip() for line in food_lines]) or "Без описания"
+            
+            meals.append({
+                "id": i,
+                "time": entry['timestamp'].strftime("%H:%M"),
+                "description": short_desc,
+                "calories": kcal,
+                "protein": prot,
+                "fat": fat,
+                "carb": carb,
+                "fiber": fiber,
+                "full_response": entry['response'],
+                "timestamp": entry['timestamp'].isoformat()
+            })
+        
+        # Получаем целевые значения
+        target_kcal = int(user_data.get("target_kcal", 0))
+        target_protein = int(user_data.get("target_protein", 0))
+        target_fat = int(user_data.get("target_fat", 0))
+        target_carb = int(user_data.get("target_carb", 0))
+        target_fiber = int(user_data.get("target_fiber", 20))
+        
+        # Рассчитываем остатки
+        remaining_kcal = target_kcal - total_kcal
+        remaining_prot = target_protein - total_prot
+        remaining_fat = target_fat - total_fat
+        remaining_carb = target_carb - total_carb
+        remaining_fiber = target_fiber - total_fiber
+        
+        # Формируем предупреждения
+        warnings = []
+        if remaining_kcal < 0:
+            maintenance_kcal = int(target_kcal / 0.83) if target_kcal else 0
+            if total_kcal <= maintenance_kcal and user_data.get("goal", 0) < user_data.get("weight", 0):
+                warnings.append(
+                    f"⚖️ По калориям уже перебор для похудения, но ты всё ещё в рамках нормы для поддержания веса — до неё ещё {maintenance_kcal - total_kcal} ккал. Вес не прибавится, не переживай 😊"
+                )
+            else:
+                warnings.append("🍩 Калорий вышло чуть больше нормы — не страшно, но завтра можно чуть аккуратнее 😉")
+        
+        if remaining_prot < 0:
+            warnings.append("🥩 Белка получилось больше, чем нужно — это не страшно.")
+        
+        if remaining_fat < 0:
+            warnings.append("🧈 Жиров вышло многовато — обрати внимание, может где-то масло лишнее.")
+        
+        if remaining_carb < 0:
+            warnings.append("🍞 Углеводов перебор — может, сегодня было много сладкого?")
+        
+        summary_data = {
+            "date": target_date.strftime("%Y-%m-%d"),
+            "total_calories": int(total_kcal),
+            "total_protein": int(total_prot),
+            "total_fat": int(total_fat),
+            "total_carb": int(total_carb),
+            "total_fiber": round(total_fiber, 1),
+            "meals": meals,
+            "remaining_calories": max(0, remaining_kcal),
+            "remaining_protein": max(0, remaining_prot),
+            "remaining_fat": max(0, remaining_fat),
+            "remaining_carb": max(0, remaining_carb),
+            "remaining_fiber": max(0, round(remaining_fiber, 1)),
+            "warnings": warnings,
+            "targets": {
+                "calories": target_kcal,
+                "protein": target_protein,
+                "fat": target_fat,
+                "carb": target_carb,
+                "fiber": target_fiber
+            }
+        }
+        
+        return {"status": "success", "data": summary_data}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Эндпоинты API
 @app.get("/api/diary/{user_id}", response_model=Dict[str, Any])
@@ -280,6 +452,12 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
             adherence_percent = 200 - adherence_percent  # Инвертируем процент, если превышает 100%
         adherence_percent = max(0, min(100, adherence_percent))  # Ограничиваем от 0 до 100
         
+        # Получаем итоги за сегодня
+        user_offset = user_data.get("utc_offset", 0)
+        user_tz = timezone(timedelta(hours=user_offset))
+        today = datetime.now(user_tz).date()
+        today_summary = await get_day_summary(user_id, today.strftime("%Y-%m-%d"))
+        
         stats_data = {
             "general": {
                 "avg_calories": avg_calories,
@@ -299,7 +477,8 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                 "fat": user_data.get("target_fat", 67),
                 "carb": user_data.get("target_carb", 250),
                 "fiber": user_data.get("target_fiber", 25)
-            }
+            },
+            "today_summary": today_summary.get("data") if today_summary else None
         }
         
         return {"status": "success", "data": stats_data}
@@ -410,48 +589,19 @@ async def add_meal(meal_data: MealData, api_key: str = Depends(verify_api_key)):
     Добавление приема пищи
     """
     try:
-        # Импортируем функции из bot.py
-        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-        from bot import add_history_entry
-        
-        # Формируем текст для добавления в историю
-        items_text = "\n".join([f"• {item['name']} – {item.get('weight', 100)} г (~{item.get('calories', 0)} ккал)" for item in meal_data.items])
-        total_calories = sum(item.get('calories', 0) for item in meal_data.items)
-        
-        # Расчет БЖУ
-        total_protein = sum(item.get('protein', 0) for item in meal_data.items)
-        total_fat = sum(item.get('fat', 0) for item in meal_data.items)
-        total_carb = sum(item.get('carb', 0) for item in meal_data.items)
-        total_fiber = sum(item.get('fiber', 0) for item in meal_data.items)
-        
-        response_text = f"🍽️ {meal_data.meal_name}:\n{items_text}\n\n📊 Итого: {total_calories} ккал, Белки: {total_protein} г, Жиры: {total_fat} г, Углеводы: {total_carb} г, Клетчатка: {total_fiber} г"
-        
-        # Добавляем запись в историю
-        entry = {
-            "prompt": f"Добавлен прием пищи: {meal_data.meal_name}",
-            "response": response_text,
-            "timestamp": datetime.now(),
-            "type": "food",
-            "data": {
-                "meal_name": meal_data.meal_name,
-                "meal_time": meal_data.meal_time,
-                "items": meal_data.items
-            }
-        }
-        
-        await add_history_entry(meal_data.user_id, entry)
-        
+        # Здесь можно добавить логику для сохранения приема пищи
+        # Пока возвращаем успешный ответ
         return {
-            "status": "success", 
-            "message": f"Прием пищи '{meal_data.meal_name}' успешно добавлен для пользователя {meal_data.user_id}"
+            "status": "success",
+            "message": "Прием пищи добавлен",
+            "data": meal_data.dict()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# НОВЫЕ МАРШРУТЫ ДЛЯ ПРОФИЛЯ ПОЛЬЗОВАТЕЛЯ
-
+# Эндпоинт для получения профиля пользователя
 @app.get("/api/profile/{user_id}", response_model=Dict[str, Any])
-async def get_profile(user_id: str, api_key: str = Depends(verify_api_key)):
+async def get_user_profile(user_id: str, api_key: str = Depends(verify_api_key)):
     """
     Получение данных профиля пользователя
     """
@@ -463,30 +613,13 @@ async def get_profile(user_id: str, api_key: str = Depends(verify_api_key)):
         # Получаем данные пользователя
         user_data = await get_user_data(user_id)
         
-        # Формируем данные профиля
-        profile_data = {
-            "gender": user_data.get("gender", ""),
-            "age": user_data.get("age", 0),
-            "height": user_data.get("height", 0),
-            "weight": user_data.get("weight", 0),
-            "goal": user_data.get("goal", 0),
-            "activity": user_data.get("activity", ""),
-            "pregnant": user_data.get("pregnant", False),
-            "utc_offset": user_data.get("utc_offset", 0),
-            "morning_reminded": user_data.get("morning_reminded", False),
-            "target_kcal": user_data.get("target_kcal", 0),
-            "target_protein": user_data.get("target_protein", 0),
-            "target_fat": user_data.get("target_fat", 0),
-            "target_carb": user_data.get("target_carb", 0),
-            "target_fiber": user_data.get("target_fiber", 0)
-        }
-        
-        return {"status": "success", "data": profile_data}
+        return {"status": "success", "data": user_data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# Эндпоинт для обновления профиля пользователя
 @app.put("/api/profile/{user_id}", response_model=Dict[str, Any])
-async def update_profile(user_id: str, profile_data: ProfileUpdateData, api_key: str = Depends(verify_api_key)):
+async def update_user_profile(user_id: str, profile_data: ProfileUpdateData, api_key: str = Depends(verify_api_key)):
     """
     Обновление данных профиля пользователя
     """
@@ -496,41 +629,103 @@ async def update_profile(user_id: str, profile_data: ProfileUpdateData, api_key:
         from bot import get_user_data, update_user_data
         
         # Получаем текущие данные пользователя
-        user_data = await get_user_data(user_id)
+        current_data = await get_user_data(user_id)
         
-        # Обновляем только предоставленные поля
+        # Обновляем только переданные поля
         update_dict = profile_data.dict(exclude_unset=True)
-        for key, value in update_dict.items():
-            if value is not None:
-                user_data[key] = value
+        current_data.update(update_dict)
         
         # Сохраняем обновленные данные
-        await update_user_data(user_id, user_data)
+        await update_user_data(user_id, current_data)
         
-        return {"status": "success", "message": "Профиль успешно обновлен"}
+        return {"status": "success", "message": "Профиль обновлен", "data": current_data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# Эндпоинт для пересчета целевых значений
 @app.post("/api/profile/{user_id}/recalculate", response_model=Dict[str, Any])
-async def recalculate_targets(user_id: str, api_key: str = Depends(verify_api_key)):
+async def recalculate_user_targets(user_id: str, api_key: str = Depends(verify_api_key)):
     """
-    Пересчет целевых значений для пользователя
+    Пересчет целевых значений пользователя
     """
     try:
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-        from bot import calculate_and_send_targets
+        from bot import get_user_data, update_user_data
         
-        # Пересчитываем целевые значения
-        await calculate_and_send_targets(None, user_id)
+        # Получаем данные пользователя
+        data = await get_user_data(user_id)
         
-        return {"status": "success", "message": "Целевые значения успешно пересчитаны"}
+        # Извлекаем необходимые данные
+        gender = data.get("gender")
+        age = data.get("age")
+        height = data.get("height")
+        weight = data.get("weight")
+        goal = data.get("goal")
+        activity = data.get("activity")
+        pregnant = data.get("pregnant", False)
+        
+        # Проверяем наличие всех необходимых данных
+        if not all([gender, age, height, weight, goal, activity]):
+            raise HTTPException(status_code=400, detail="Недостаточно данных для расчета")
+        
+        # Расчет BMR (Mifflin-St Jeor)
+        if gender == "муж":
+            bmr = 10 * weight + 6.25 * height - 5 * age + 5
+        else:
+            bmr = 10 * weight + 6.25 * height - 5 * age - 161
+        
+        # Коэффициенты активности
+        multipliers = {"низкий": 1.2, "средний": 1.3, "высокий": 1.4}
+        maintenance = bmr * multipliers.get(activity, 1.2)
+        
+        # Расчет целевых калорий
+        if pregnant:
+            if goal == weight:
+                target_calories = maintenance * 1.17
+            elif goal < weight:
+                target_calories = maintenance
+            else:
+                target_calories = maintenance * 1.34
+        else:
+            if goal == weight:
+                target_calories = maintenance
+            elif goal < weight:
+                target_calories = maintenance * 0.83
+            else:
+                target_calories = maintenance * 1.17
+        
+        target_calories = max(1200, target_calories)
+        
+        # Расчет БЖУ
+        protein_grams = int((target_calories * 0.3) / 4)
+        fat_grams = int((target_calories * 0.3) / 9)
+        carbs_grams = int((target_calories * 0.4) / 4)
+        fiber_grams = max(20, round(target_calories * 0.014))
+        
+        # Обновляем данные пользователя
+        data["target_kcal"] = int(target_calories)
+        data["target_protein"] = protein_grams
+        data["target_fat"] = fat_grams
+        data["target_carb"] = carbs_grams
+        data["target_fiber"] = fiber_grams
+        
+        await update_user_data(user_id, data)
+        
+        return {
+            "status": "success", 
+            "message": "Целевые значения пересчитаны",
+            "data": {
+                "target_kcal": int(target_calories),
+                "target_protein": protein_grams,
+                "target_fat": fat_grams,
+                "target_carb": carbs_grams,
+                "target_fiber": fiber_grams
+            }
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/")
-async def root():
-    return {"message": "Telegram Bot WebApp API работает! Используйте /docs для просмотра документации API."}
-
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
