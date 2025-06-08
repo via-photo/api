@@ -146,9 +146,21 @@
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
+        
+        #debug-info {
+            padding: 10px;
+            background-color: #f8f9fa;
+            margin-bottom: 10px;
+            font-size: 12px;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
+    <!-- Отладочная информация -->
+    <div id="debug-info">Инициализация...</div>
+    
     <div class="content-container">
         <!-- Секция Дневник -->
         <div id="diary-section" class="section active">
@@ -201,15 +213,16 @@
             </div>
         </div>
 
-        <!-- Секция Профиль (пустая) -->
+        <!-- Секция Профиль (обновлена) -->
         <div id="profile-section" class="section">
             <h2 class="page-title">👤 Профиль</h2>
-            <div class="empty-section">
-                <div class="empty-icon">
-                    <i class="fas fa-user-circle"></i>
+            <div id="profile-content">
+                <div class="loading-spinner">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-2">Загрузка данных профиля...</p>
                 </div>
-                <h4>Раздел в разработке</h4>
-                <p>Здесь будет отображаться информация о вашем профиле и настройках.</p>
             </div>
         </div>
     </div>
@@ -261,7 +274,11 @@
         class TelegramBotApiClient {
             constructor(apiBaseUrl) {
                 this.apiBaseUrl = apiBaseUrl || 'https://telegram-bot-api-h136.onrender.com/api';
-                this.apiKey = 'test_api_key'; // В реальном приложении должен быть получен безопасным способом
+                // Получаем API ключ из переменных окружения, если доступно
+                this.apiKey = 'test_api_key';
+                
+                // Логируем инициализацию для отладки
+                console.log('API клиент инициализирован с базовым URL:', this.apiBaseUrl);
             }
 
             /**
@@ -271,10 +288,11 @@
              */
             async getDiary(userId) {
                 try {
+                    console.log(`Запрос данных дневника для пользователя: ${userId}`);
                     const response = await this._fetchWithAuth(`${this.apiBaseUrl}/diary/${userId}`);
                     return response.data;
                 } catch (error) {
-                    console.error('Ошибка при получении данных дневника:', error);
+                    console.error(`Ошибка при получении данных дневника для пользователя ${userId}:`, error);
                     throw error;
                 }
             }
@@ -286,10 +304,11 @@
              */
             async getStats(userId) {
                 try {
+                    console.log(`Запрос статистики для пользователя: ${userId}`);
                     const response = await this._fetchWithAuth(`${this.apiBaseUrl}/stats/${userId}`);
                     return response.data;
                 } catch (error) {
-                    console.error('Ошибка при получении статистики:', error);
+                    console.error(`Ошибка при получении статистики для пользователя ${userId}:`, error);
                     throw error;
                 }
             }
@@ -301,10 +320,11 @@
              */
             async getRecipes(userId) {
                 try {
+                    console.log(`Запрос рецептов для пользователя: ${userId}`);
                     const response = await this._fetchWithAuth(`${this.apiBaseUrl}/recipes/${userId}`);
                     return response.data;
                 } catch (error) {
-                    console.error('Ошибка при получении рецептов:', error);
+                    console.error(`Ошибка при получении рецептов для пользователя ${userId}:`, error);
                     throw error;
                 }
             }
@@ -343,22 +363,66 @@
                     ...(options.headers || {})
                 };
 
-                const response = await fetch(url, {
-                    ...options,
-                    headers
-                });
-
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`API запрос не удался: ${response.status} ${response.statusText} - ${errorText}`);
+                // Расширенное логирование для отладки
+                console.log(`Выполнение запроса к: ${url}`);
+                console.log('Заголовки запроса:', headers);
+                console.log('API ключ:', this.apiKey);
+                console.log('Опции запроса:', options);
+                
+                // Добавляем информацию в отладочную панель
+                const debugInfo = document.getElementById('debug-info');
+                if (debugInfo) {
+                    debugInfo.innerHTML += `<br>Запрос к: ${url}`;
+                    debugInfo.innerHTML += `<br>API ключ: ${this.apiKey}`;
                 }
 
-                return await response.json();
+                try {
+                    const response = await fetch(url, {
+                        ...options,
+                        headers
+                    });
+
+                    // Логируем полный ответ
+                    console.log(`Статус ответа: ${response.status} ${response.statusText}`);
+                    console.log('Заголовки ответа:', response.headers);
+                    
+                    if (debugInfo) {
+                        debugInfo.innerHTML += `<br>Статус ответа: ${response.status} ${response.statusText}`;
+                    }
+
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error(`Ошибка API: ${response.status} ${response.statusText}`);
+                        console.error('Текст ошибки:', errorText);
+                        
+                        if (debugInfo) {
+                            debugInfo.innerHTML += `<br>Ошибка API: ${response.status} ${response.statusText}`;
+                            debugInfo.innerHTML += `<br>Текст ошибки: ${errorText}`;
+                        }
+                        
+                        throw new Error(`API запрос не удался: ${response.status} ${response.statusText} - ${errorText}`);
+                    }
+
+                    const data = await response.json();
+                    console.log('Данные ответа:', data);
+                    return data;
+                } catch (error) {
+                    console.error('Ошибка при выполнении запроса:', error);
+                    
+                    if (debugInfo) {
+                        debugInfo.innerHTML += `<br>Ошибка при выполнении запроса: ${error.message}`;
+                    }
+                    
+                    throw error;
+                }
             }
         }
 
         // Основной код приложения
         document.addEventListener('DOMContentLoaded', function() {
+            // Инициализация отладочной информации
+            updateDebugInfo();
+            
             // Инициализация API клиента
             const apiClient = new TelegramBotApiClient();
             
@@ -418,34 +482,178 @@
             });
         });
 
-        // Функция для загрузки всех данных
+        /**
+         * Функция для обновления отладочной информации
+         */
+        function updateDebugInfo() {
+            const debugInfo = document.getElementById('debug-info');
+            debugInfo.innerHTML = 'Инициализация...';
+            
+            // Проверяем URL параметры
+            const urlParams = new URLSearchParams(window.location.search);
+            const userIdFromUrl = urlParams.get('userId');
+            if (userIdFromUrl) {
+                debugInfo.innerHTML += `<br>userId из URL: ${userIdFromUrl}`;
+            } else {
+                debugInfo.innerHTML += '<br>userId в URL не найден';
+            }
+            
+            // Проверяем Telegram WebApp
+            if (window.Telegram && window.Telegram.WebApp) {
+                debugInfo.innerHTML += '<br>Telegram WebApp доступен';
+                if (window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+                    const user = window.Telegram.WebApp.initDataUnsafe.user;
+                    debugInfo.innerHTML += `<br>Telegram user: ${user.id} (${user.first_name})`;
+                } else {
+                    debugInfo.innerHTML += '<br>Данные пользователя в Telegram WebApp не найдены';
+                }
+            } else {
+                debugInfo.innerHTML += '<br>Telegram WebApp не доступен';
+            }
+            
+            // Проверяем localStorage
+            const savedUser = localStorage.getItem('telegramUser');
+            if (savedUser) {
+                try {
+                    const userData = JSON.parse(savedUser);
+                    debugInfo.innerHTML += `<br>localStorage user: ${userData.id}`;
+                } catch (e) {
+                    debugInfo.innerHTML += '<br>Ошибка при чтении localStorage';
+                }
+            } else {
+                debugInfo.innerHTML += '<br>Данные пользователя в localStorage не найдены';
+            }
+            
+            // Итоговый userId
+            const userId = getUserId();
+            debugInfo.innerHTML += `<br>Итоговый userId: ${userId || 'не определен'}`;
+        }
+
+        /**
+         * Функция для загрузки всех данных с улучшенной обработкой ошибок
+         */
         async function loadAllData() {
             const userId = getUserId();
             
             if (!userId) {
-                showError('diary-content', 'Не удалось получить ID пользователя. Пожалуйста, откройте приложение через Telegram.');
-                showError('stats-content', 'Не удалось получить ID пользователя. Пожалуйста, откройте приложение через Telegram.');
-                showError('recipes-content', 'Не удалось получить ID пользователя. Пожалуйста, откройте приложение через Telegram.');
+                const errorMessage = 'Не удалось получить ID пользователя. Пожалуйста, убедитесь, что вы открыли приложение через Telegram бота.';
+                showError('diary-content', errorMessage);
+                showError('stats-content', errorMessage);
+                showError('recipes-content', errorMessage);
+                showError('profile-content', errorMessage);
                 return;
             }
             
             // Загружаем данные для всех разделов
-            loadDiaryData(userId);
-            loadStatsData(userId);
-            loadRecipesData(userId);
+            await Promise.all([
+                loadDiaryData(userId),
+                loadStatsData(userId),
+                loadRecipesData(userId),
+                loadProfileData(userId)
+            ]);
         }
 
-        // Функция для получения ID пользователя из Telegram WebApp
+        /**
+         * Исправленная функция для получения ID пользователя из Telegram WebApp
+         */
         function getUserId() {
+            // Сначала пробуем получить из Telegram WebApp
             if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe && window.Telegram.WebApp.initDataUnsafe.user) {
+                console.log('Получен userId из Telegram WebApp:', window.Telegram.WebApp.initDataUnsafe.user.id);
                 return window.Telegram.WebApp.initDataUnsafe.user.id.toString();
             }
             
-            // Для тестирования вне Telegram
-            return localStorage.getItem('testUserId') || '123456789';
+            // Затем пробуем получить из URL параметров
+            const urlParams = new URLSearchParams(window.location.search);
+            const userIdFromUrl = urlParams.get('userId');
+            if (userIdFromUrl) {
+                console.log('Получен userId из URL параметров:', userIdFromUrl);
+                return userIdFromUrl;
+            }
+            
+            // Затем пробуем из localStorage
+            const savedUser = localStorage.getItem('telegramUser');
+            if (savedUser) {
+                try {
+                    const userData = JSON.parse(savedUser);
+                    if (userData && userData.id) {
+                        console.log('Получен userId из localStorage:', userData.id);
+                        return userData.id.toString();
+                    }
+                } catch (e) {
+                    console.error('Ошибка при парсинге данных пользователя из localStorage:', e);
+                }
+            }
+            
+            console.error('Не удалось получить userId. WebApp должен быть запущен из Telegram.');
+            return null;
         }
 
-        // Функция для загрузки данных дневника
+        /**
+         * Исправленная функция для инициализации Telegram WebApp
+         */
+        function initTelegramWebApp() {
+            if (window.Telegram && window.Telegram.WebApp) {
+                const tg = window.Telegram.WebApp;
+                
+                // Расширяем WebApp на весь экран
+                tg.expand();
+                
+                // Получаем данные пользователя
+                const user = tg.initDataUnsafe?.user;
+                if (user) {
+                    console.log('Telegram user:', user);
+                    // Сохраняем полные данные пользователя в localStorage
+                    localStorage.setItem('telegramUser', JSON.stringify(user));
+                    
+                    // Для отладки выводим ID пользователя
+                    console.log('User ID сохранен:', user.id);
+                } else {
+                    console.error('Данные пользователя недоступны в Telegram WebApp');
+                }
+                
+                // Настраиваем цвета темы из Telegram
+                document.documentElement.style.setProperty('--tg-theme-bg-color', tg.backgroundColor || '#ffffff');
+                document.documentElement.style.setProperty('--tg-theme-text-color', tg.textColor || '#222222');
+                document.documentElement.style.setProperty('--tg-theme-button-color', tg.buttonColor || '#4d6073');
+                document.documentElement.style.setProperty('--tg-theme-button-text-color', tg.buttonTextColor || '#ffffff');
+                
+                // Настраиваем кнопку "Назад"
+                tg.BackButton.onClick(() => {
+                    // Получаем текущую активную секцию
+                    const activeSection = document.querySelector('.section.active');
+                    const activeSectionId = activeSection.id;
+                    
+                    // Если мы не на главной странице (дневник), возвращаемся к ней
+                    if (activeSectionId !== 'diary-section') {
+                        // Скрываем все секции
+                        document.querySelectorAll('.section').forEach(section => section.classList.remove('active'));
+                        
+                        // Показываем дневник
+                        document.getElementById('diary-section').classList.add('active');
+                        
+                        // Обновляем активный элемент навигации
+                        document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+                        document.querySelector('[data-section="diary-section"]').classList.add('active');
+                        
+                        // Скрываем кнопку "Назад"
+                        tg.BackButton.hide();
+                    }
+                });
+            } else {
+                console.error('Telegram WebApp API не доступен');
+                // Если API не доступен, показываем предупреждение
+                document.body.insertAdjacentHTML('afterbegin', 
+                    '<div class="alert alert-warning m-2" role="alert">' +
+                    'Приложение должно быть запущено через Telegram. Некоторые функции недоступны.' +
+                    '</div>'
+                );
+            }
+        }
+
+        /**
+         * Улучшенная функция для загрузки данных дневника с обработкой ошибок
+         */
         async function loadDiaryData(userId) {
             const diaryContent = document.getElementById('diary-content');
             
@@ -458,11 +666,19 @@
                 renderDiaryData(diaryData);
             } catch (error) {
                 console.error('Ошибка при загрузке данных дневника:', error);
-                showError('diary-content', 'Не удалось загрузить данные дневника. Пожалуйста, попробуйте позже.');
+                
+                // Проверяем тип ошибки для более точного сообщения
+                if (error.message && error.message.includes('403')) {
+                    showError('diary-content', 'Доступ запрещен. Пожалуйста, убедитесь, что вы открыли приложение через Telegram бота.');
+                } else {
+                    showError('diary-content', 'Не удалось загрузить данные дневника. Пожалуйста, попробуйте позже.');
+                }
             }
         }
 
-        // Функция для загрузки данных статистики
+        /**
+         * Улучшенная функция для загрузки данных статистики с обработкой ошибок
+         */
         async function loadStatsData(userId) {
             const statsContent = document.getElementById('stats-content');
             
@@ -475,11 +691,19 @@
                 renderStatsData(statsData);
             } catch (error) {
                 console.error('Ошибка при загрузке данных статистики:', error);
-                showError('stats-content', 'Не удалось загрузить данные статистики. Пожалуйста, попробуйте позже.');
+                
+                // Проверяем тип ошибки для более точного сообщения
+                if (error.message && error.message.includes('403')) {
+                    showError('stats-content', 'Доступ запрещен. Пожалуйста, убедитесь, что вы открыли приложение через Telegram бота.');
+                } else {
+                    showError('stats-content', 'Не удалось загрузить данные статистики. Пожалуйста, попробуйте позже.');
+                }
             }
         }
 
-        // Функция для загрузки данных рецептов
+        /**
+         * Улучшенная функция для загрузки данных рецептов с обработкой ошибок
+         */
         async function loadRecipesData(userId) {
             const recipesContent = document.getElementById('recipes-content');
             
@@ -492,7 +716,13 @@
                 renderRecipesData(recipesData);
             } catch (error) {
                 console.error('Ошибка при загрузке данных рецептов:', error);
-                showError('recipes-content', 'Не удалось загрузить данные рецептов. Пожалуйста, попробуйте позже.');
+                
+                // Проверяем тип ошибки для более точного сообщения
+                if (error.message && error.message.includes('403')) {
+                    showError('recipes-content', 'Доступ запрещен. Пожалуйста, убедитесь, что вы открыли приложение через Telegram бота.');
+                } else {
+                    showError('recipes-content', 'Не удалось загрузить данные рецептов. Пожалуйста, попробуйте позже.');
+                }
             }
         }
 
@@ -530,11 +760,9 @@
                     `;
                     
                     // Отображаем продукты
-                    meal.items.forEach((item, itemIndex) => {
-                        const isLastItem = itemIndex === meal.items.length - 1;
-                        
+                    meal.items.forEach(item => {
                         html += `
-                        <div class="d-flex justify-content-between ${isLastItem ? '' : 'mb-1'}">
+                        <div class="d-flex justify-content-between align-items-center small">
                             <span>${item.name}</span>
                             <span class="text-muted">${item.calories} ккал</span>
                         </div>
@@ -555,9 +783,9 @@
             
             // Добавляем кнопку для добавления приема пищи
             html += `
-            <div class="d-grid gap-2">
-                <button class="btn btn-primary mb-4" type="button" id="addMealBtn">
-                    <i class="fas fa-plus-circle me-2"></i>Добавить приём пищи
+            <div class="d-grid gap-2 mb-4">
+                <button id="addMealBtn" class="btn btn-primary">
+                    <i class="fas fa-plus-circle"></i> Добавить приём пищи
                 </button>
             </div>
             `;
@@ -571,94 +799,109 @@
         function renderStatsData(data) {
             const statsContent = document.getElementById('stats-content');
             
+            // Проверяем наличие данных
+            if (!data || !data.general) {
+                statsContent.innerHTML = `
+                <div class="empty-section">
+                    <div class="empty-icon">
+                        <i class="fas fa-chart-bar"></i>
+                    </div>
+                    <h4>Нет данных для статистики</h4>
+                    <p>Добавьте приёмы пищи в дневник, чтобы увидеть статистику.</p>
+                </div>
+                `;
+                return;
+            }
+            
+            // Получаем данные
+            const general = data.general;
+            const nutrition = data.nutrition_distribution;
+            const topProducts = data.top_products;
+            
             let html = `
-            <div class="container">
-                <!-- Общая статистика -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">Общая статистика</h5>
+            <div class="card mb-4">
+                <div class="card-header">Общая статистика</div>
+                <div class="card-body">
+                    <div class="row mb-2">
+                        <div class="col-7">Средняя калорийность:</div>
+                        <div class="col-5 text-end">${general.avg_calories} ккал</div>
                     </div>
-                    <div class="card-body">
-                        <div class="row g-3">
-                            <div class="col-6">
-                                <div class="p-3 border rounded text-center">
-                                    <h3 class="mb-1">${data.general.avg_calories}</h3>
-                                    <p class="text-muted mb-0">Средние ккал/день</p>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="p-3 border rounded text-center">
-                                    <h3 class="mb-1">${data.general.days_tracked}</h3>
-                                    <p class="text-muted mb-0">Дней в трекере</p>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="p-3 border rounded text-center">
-                                    <h3 class="mb-1">${data.general.adherence_percent}%</h3>
-                                    <p class="text-muted mb-0">Соблюдение нормы</p>
-                                </div>
-                            </div>
-                            <div class="col-6">
-                                <div class="p-3 border rounded text-center">
-                                    <h3 class="mb-1">${data.general.weight_change > 0 ? '+' : ''}${data.general.weight_change} кг</h3>
-                                    <p class="text-muted mb-0">Изменение веса</p>
+                    <div class="row mb-2">
+                        <div class="col-7">Дней отслеживания:</div>
+                        <div class="col-5 text-end">${general.days_tracked}</div>
+                    </div>
+                    <div class="row mb-2">
+                        <div class="col-7">Соблюдение нормы:</div>
+                        <div class="col-5 text-end">
+                            <div class="progress" style="height: 20px;">
+                                <div class="progress-bar" role="progressbar" style="width: ${general.adherence_percent}%;" 
+                                    aria-valuenow="${general.adherence_percent}" aria-valuemin="0" aria-valuemax="100">
+                                    ${general.adherence_percent}%
                                 </div>
                             </div>
                         </div>
                     </div>
-                </div>
-
-                <!-- Распределение БЖУ -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">Распределение БЖУ</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row g-2 mt-3">
-                            <div class="col-4">
-                                <div class="p-2 border rounded text-center">
-                                    <h5 class="mb-0">${data.nutrition_distribution.protein}%</h5>
-                                    <small class="text-muted">Белки</small>
-                                </div>
-                            </div>
-                            <div class="col-4">
-                                <div class="p-2 border rounded text-center">
-                                    <h5 class="mb-0">${data.nutrition_distribution.fat}%</h5>
-                                    <small class="text-muted">Жиры</small>
-                                </div>
-                            </div>
-                            <div class="col-4">
-                                <div class="p-2 border rounded text-center">
-                                    <h5 class="mb-0">${data.nutrition_distribution.carb}%</h5>
-                                    <small class="text-muted">Углеводы</small>
-                                </div>
-                            </div>
+                    <div class="row mb-2">
+                        <div class="col-7">Изменение веса:</div>
+                        <div class="col-5 text-end">
+                            ${general.weight_change > 0 ? '+' : ''}${general.weight_change} кг
                         </div>
                     </div>
                 </div>
-
-                <!-- Топ продуктов -->
-                <div class="card mb-4">
-                    <div class="card-header">
-                        <h5 class="mb-0">Часто употребляемые продукты</h5>
+            </div>
+            
+            <div class="card mb-4">
+                <div class="card-header">Распределение БЖУ</div>
+                <div class="card-body">
+                    <div class="progress mb-3" style="height: 25px;">
+                        <div class="progress-bar bg-danger" role="progressbar" style="width: ${nutrition.protein}%;" 
+                            aria-valuenow="${nutrition.protein}" aria-valuemin="0" aria-valuemax="100">
+                            Белки ${nutrition.protein}%
+                        </div>
+                        <div class="progress-bar bg-warning" role="progressbar" style="width: ${nutrition.fat}%;" 
+                            aria-valuenow="${nutrition.fat}" aria-valuemin="0" aria-valuemax="100">
+                            Жиры ${nutrition.fat}%
+                        </div>
+                        <div class="progress-bar bg-success" role="progressbar" style="width: ${nutrition.carb}%;" 
+                            aria-valuenow="${nutrition.carb}" aria-valuemin="0" aria-valuemax="100">
+                            Углеводы ${nutrition.carb}%
+                        </div>
                     </div>
-                    <div class="card-body">
-                        <ul class="list-group list-group-flush">
+                    <div class="row text-center">
+                        <div class="col-4">
+                            <div class="small text-muted">Белки</div>
+                            <div class="fw-bold">${nutrition.protein}%</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="small text-muted">Жиры</div>
+                            <div class="fw-bold">${nutrition.fat}%</div>
+                        </div>
+                        <div class="col-4">
+                            <div class="small text-muted">Углеводы</div>
+                            <div class="fw-bold">${nutrition.carb}%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card mb-4">
+                <div class="card-header">Топ продуктов</div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush">
             `;
             
             // Отображаем топ продуктов
-            data.top_products.forEach(product => {
+            topProducts.forEach(product => {
                 html += `
                 <li class="list-group-item d-flex justify-content-between align-items-center">
-                    <span>${product.name}</span>
-                    <span class="badge bg-primary rounded-pill">${product.count} раз</span>
+                    ${product.name}
+                    <span class="badge bg-primary rounded-pill">${product.count}</span>
                 </li>
                 `;
             });
             
             html += `
-                        </ul>
-                    </div>
+                    </ul>
                 </div>
             </div>
             `;
@@ -670,165 +913,149 @@
         function renderRecipesData(data) {
             const recipesContent = document.getElementById('recipes-content');
             
+            // Проверяем наличие данных
+            if (!data || !data.recipes || data.recipes.length === 0) {
+                recipesContent.innerHTML = `
+                <div class="empty-section">
+                    <div class="empty-icon">
+                        <i class="fas fa-utensils"></i>
+                    </div>
+                    <h4>Нет доступных рецептов</h4>
+                    <p>Рецепты скоро появятся.</p>
+                </div>
+                `;
+                return;
+            }
+            
             let html = `
-            <div class="container">
-                <!-- Поиск рецептов -->
-                <div class="mb-4">
-                    <div class="input-group">
-                        <input type="text" class="form-control" placeholder="Поиск рецептов...">
-                        <button class="btn btn-primary" type="button">
-                            <i class="fas fa-search"></i>
+            <div class="mb-3">
+                <div class="input-group">
+                    <input type="text" class="form-control" id="recipeSearch" placeholder="Поиск рецептов...">
+                    <button class="btn btn-outline-secondary" type="button" id="clearSearch">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="mb-3 d-flex flex-wrap gap-2" id="categoryFilters">
+            `;
+            
+            // Добавляем фильтры по категориям
+            data.categories.forEach(category => {
+                html += `
+                <button class="btn btn-sm ${category === 'Все' ? 'btn-primary' : 'btn-outline-primary'} category-filter" 
+                    data-category="${category}">
+                    ${category}
+                </button>
+                `;
+            });
+            
+            html += `
+            </div>
+            
+            <div id="recipesList">
+            `;
+            
+            // Добавляем рецепты
+            data.recipes.forEach(recipe => {
+                html += `
+                <div class="card mb-3 recipe-card" data-category="${recipe.category}">
+                    <div class="card-body">
+                        <h5 class="card-title">${recipe.title}</h5>
+                        <div class="d-flex mb-2">
+                            <span class="badge bg-light text-dark me-2">${recipe.category}</span>
+                            <span class="badge bg-light text-dark me-2">${recipe.prep_time}</span>
+                            <span class="badge bg-primary">${recipe.calories} ккал</span>
+                        </div>
+                        <p class="card-text small">${recipe.description}</p>
+                        <button class="btn btn-sm btn-outline-primary recipe-details-btn">
+                            <i class="fas fa-info-circle"></i> Подробнее
                         </button>
                     </div>
                 </div>
-                
-                <!-- Категории рецептов -->
-                <div class="mb-4 pb-2 border-bottom">
-                    <div class="d-flex flex-nowrap overflow-auto pb-2" style="gap: 10px;">
-            `;
-            
-            // Отображаем категории
-            data.categories.forEach((category, index) => {
-                html += `
-                <button class="btn btn-sm ${index === 0 ? 'btn-primary' : 'btn-outline-primary'}">${category}</button>
                 `;
             });
             
             html += `
-                    </div>
-                </div>
-                
-                <!-- Список рецептов -->
-                <div class="row g-3">
-            `;
-            
-            // Отображаем рецепты
-            data.recipes.forEach(recipe => {
-                html += `
-                <div class="col-12">
-                    <div class="card">
-                        <div class="card-body">
-                            <h5 class="card-title">${recipe.title}</h5>
-                            <div class="d-flex mb-2">
-                                <span class="badge bg-light text-dark me-2">${recipe.category}</span>
-                                <span class="badge bg-light text-dark me-2">${recipe.prep_time}</span>
-                                <span class="badge bg-light text-dark">${recipe.calories} ккал</span>
-                            </div>
-                            <p class="card-text">${recipe.description}</p>
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div>
-                                    <small class="text-muted">
-                                        <i class="fas fa-fire me-1"></i>${recipe.calories} ккал
-                                    </small>
-                                    <small class="text-muted ms-3">
-                                        <i class="fas fa-utensils me-1"></i>${recipe.portions} порция
-                                    </small>
-                                </div>
-                                <button class="btn btn-sm btn-outline-primary recipe-details-btn">Подробнее</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                `;
-            });
-            
-            html += `
-                </div>
             </div>
             `;
             
             recipesContent.innerHTML = html;
-        }
-
-        // Функция для отображения ошибки
-        function showError(containerId, message) {
-            const container = document.getElementById(containerId);
-            container.innerHTML = `
-            <div class="error-message">
-                <i class="fas fa-exclamation-triangle me-2"></i>
-                ${message}
-            </div>
-            `;
-        }
-
-        // Функция для инициализации Telegram WebApp
-        function initTelegramWebApp() {
-            if (window.Telegram && window.Telegram.WebApp) {
-                const tg = window.Telegram.WebApp;
-                
-                // Расширяем WebApp на весь экран
-                tg.expand();
-                
-                // Получаем данные пользователя
-                const user = tg.initDataUnsafe?.user;
-                if (user) {
-                    console.log('Telegram user:', user);
-                    // Здесь можно использовать данные пользователя для персонализации
-                    localStorage.setItem('telegramUser', JSON.stringify(user));
-                }
-                
-                // Устанавливаем цвета темы из Telegram
-                document.documentElement.style.setProperty('--tg-theme-bg-color', tg.backgroundColor || '#ffffff');
-                document.documentElement.style.setProperty('--tg-theme-text-color', tg.textColor || '#222222');
-                document.documentElement.style.setProperty('--tg-theme-button-color', tg.buttonColor || '#4d6073');
-                document.documentElement.style.setProperty('--tg-theme-button-text-color', tg.buttonTextColor || '#ffffff');
-                
-                // Настраиваем кнопку "Назад"
-                tg.BackButton.onClick(() => {
-                    // Получаем текущую активную секцию
-                    const activeSection = document.querySelector('.section.active');
-                    const activeSectionId = activeSection.id;
+            
+            // Добавляем обработчики для фильтров и поиска
+            document.querySelectorAll('.category-filter').forEach(button => {
+                button.addEventListener('click', function() {
+                    const category = this.getAttribute('data-category');
                     
-                    // Если мы не на главной странице (дневник), возвращаемся к ней
-                    if (activeSectionId !== 'diary-section') {
-                        // Скрываем все секции
-                        document.querySelectorAll('.section').forEach(section => section.classList.remove('active'));
-                        
-                        // Показываем дневник
-                        document.getElementById('diary-section').classList.add('active');
-                        
-                        // Обновляем активный элемент навигации
-                        document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
-                        document.querySelector('[data-section="diary-section"]').classList.add('active');
-                        
-                        // Скрываем кнопку "Назад"
-                        tg.BackButton.hide();
-                    }
-                });
-                
-                // Обработчик для навигации с учетом кнопки "Назад"
-                document.querySelectorAll('.nav-item').forEach(item => {
-                    item.addEventListener('click', function() {
-                        const sectionId = this.getAttribute('data-section');
-                        
-                        // Если переходим на страницу, отличную от дневника, показываем кнопку "Назад"
-                        if (sectionId !== 'diary-section') {
-                            tg.BackButton.show();
+                    // Обновляем активную кнопку
+                    document.querySelectorAll('.category-filter').forEach(btn => {
+                        btn.classList.remove('btn-primary');
+                        btn.classList.add('btn-outline-primary');
+                    });
+                    this.classList.remove('btn-outline-primary');
+                    this.classList.add('btn-primary');
+                    
+                    // Фильтруем рецепты
+                    document.querySelectorAll('.recipe-card').forEach(card => {
+                        if (category === 'Все' || card.getAttribute('data-category') === category) {
+                            card.style.display = 'block';
                         } else {
-                            tg.BackButton.hide();
+                            card.style.display = 'none';
                         }
                     });
                 });
-            } else {
-                console.log('Telegram WebApp API не доступен');
-                // Если API не доступен, добавляем заглушку для тестирования
-                document.body.insertAdjacentHTML('afterbegin', 
-                    '<div class="alert alert-warning m-2" role="alert">' +
-                    'Приложение запущено вне Telegram. Некоторые функции могут быть недоступны.' +
-                    '</div>'
-                );
+            });
+            
+            // Обработчик для поиска
+            document.getElementById('recipeSearch').addEventListener('input', function() {
+                const searchText = this.value.toLowerCase();
+                
+                document.querySelectorAll('.recipe-card').forEach(card => {
+                    const title = card.querySelector('.card-title').textContent.toLowerCase();
+                    const description = card.querySelector('.card-text').textContent.toLowerCase();
+                    
+                    if (title.includes(searchText) || description.includes(searchText)) {
+                        card.style.display = 'block';
+                    } else {
+                        card.style.display = 'none';
+                    }
+                });
+            });
+            
+            // Обработчик для очистки поиска
+            document.getElementById('clearSearch').addEventListener('click', function() {
+                document.getElementById('recipeSearch').value = '';
+                document.querySelectorAll('.recipe-card').forEach(card => {
+                    card.style.display = 'block';
+                });
+            });
+        }
+
+        /**
+         * Функция для отображения ошибки
+         */
+        function showError(containerId, message) {
+            const container = document.getElementById(containerId);
+            if (container) {
+                container.innerHTML = `
+                <div class="error-message">
+                    <p><i class="fas fa-exclamation-circle"></i> ${message}</p>
+                </div>
+                `;
             }
         }
 
-        // Функция для отправки данных в бот
+        /**
+         * Функция для отправки данных обратно в бота
+         */
         function sendDataToBot(data) {
             if (window.Telegram && window.Telegram.WebApp) {
                 window.Telegram.WebApp.sendData(JSON.stringify(data));
             } else {
-                console.log('Отправка данных в бот:', data);
-                alert('Данные отправлены в бот: ' + JSON.stringify(data));
+                alert('Эта функция доступна только в Telegram');
             }
         }
     </script>
+    <script src="profile.js"></script>
 </body>
 </html>
