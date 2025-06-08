@@ -773,6 +773,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         print(f"Итоговые данные статистики: avg_calories={avg_calories}, days_tracked={days_tracked}, adherence_percent={adherence_percent}")
         print(f"Распределение БЖУ: protein={protein_percent}%, fat={fat_percent}%, carb={carb_percent}%")
         print(f"Топ продуктов: {len(top_products)} шт")
+        print(f"Данных по дням: {len(daily_data)} записей")
         
         return {"status": "success", "data": stats_data}
     except Exception as e:
