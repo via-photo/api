@@ -592,6 +592,41 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         fat_percent = round((total_fat / total_nutrients * 100) if total_nutrients > 0 else 0)
         carb_percent = round((total_carb / total_nutrients * 100) if total_nutrients > 0 else 0)
         
+        # Подготавливаем данные по дням для графиков
+        daily_data = []
+        if food_entries:
+            # Создаем полный список дней в периоде
+            sorted_entries = sorted(food_entries, key=lambda x: x.get("timestamp") if isinstance(x.get("timestamp"), datetime) else datetime.fromisoformat(str(x.get("timestamp"))))
+            first_date = sorted_entries[0].get("timestamp")
+            last_date = sorted_entries[-1].get("timestamp")
+            
+            if isinstance(first_date, str):
+                first_date = datetime.fromisoformat(first_date)
+            if isinstance(last_date, str):
+                last_date = datetime.fromisoformat(last_date)
+            
+            # Генерируем все дни в периоде
+            current_date = first_date.date()
+            end_date = last_date.date()
+            
+            while current_date <= end_date:
+                date_str = current_date.strftime("%Y-%m-%d")
+                day_data = days.get(date_str, {
+                    "calories": 0,
+                    "protein": 0,
+                    "fat": 0,
+                    "carb": 0
+                })
+                daily_data.append({
+                    "date": current_date.strftime("%d.%m.%Y"),
+                    "calories": day_data["calories"],
+                    "protein": day_data["protein"],
+                    "fat": day_data["fat"],
+                    "carb": day_data["carb"],
+                    "fiber": 0  # TODO: добавить расчет клетчатки
+                })
+                current_date += timedelta(days=1)
+        
         # Расчет изменения веса
         weight_entries = [entry for entry in history if entry.get("type") == "weight"]
         weight_entries.sort(key=lambda x: x.get("timestamp") if isinstance(x.get("timestamp"), datetime) else datetime.fromisoformat(x.get("timestamp")))
@@ -731,7 +766,8 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                 "carb": user_data.get("target_carb", 250),
                 "fiber": user_data.get("target_fiber", 25)
             },
-            "today_summary": today_summary_data
+            "today_summary": today_summary_data,
+            "daily_data": daily_data  # Добавляем реальные данные по дням
         }
         
         print(f"Итоговые данные статистики: avg_calories={avg_calories}, days_tracked={days_tracked}, adherence_percent={adherence_percent}")
@@ -1256,51 +1292,3 @@ async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
-
-@app.get("/api/daily-summary/{user_id}/{start_date}/{end_date}")
-async def get_daily_summary(user_id: str, start_date: str, end_date: str):
-    try:
-        start = datetime.strptime(start_date, "%Y-%m-%d").date()
-        end = datetime.strptime(end_date, "%Y-%m-%d").date()
-
-        async with async_session() as session:
-            result = await session.execute(
-                select(History).where(
-                    History.user_id == user_id,
-                    History.date >= start,
-                    History.date <= end
-                )
-            )
-            entries = result.scalars().all()
-
-        if not entries:
-            return {"summary": "📭 За указанный период нет данных."}
-
-        daily_data = {}
-        for entry in entries:
-            entry_date = entry.date
-            if entry_date not in daily_data:
-                daily_data[entry_date] = {'kcal': 0, 'protein': 0, 'fat': 0, 'carb': 0, 'fiber': 0}
-            
-            match = re.search(r"(\d+(?:[.,]\d+)?) ккал, Белки: (\d+(?:[.,]\d+)?) г, Жиры: (\d+(?:[.,]\d+)?) г, Углеводы: (\д+(?:[.,]\д+)?) г, Клетчатка: (\д+(?:[.,]\д+)?) г", entry.response)
-            if match:
-                kcal, prot, fat, carb, fiber = map(lambda x: float(x.replace(',', '.')), match.groups())
-                daily_data[entry_date]['kcal'] += kcal
-                daily_data[entry_date]['protein'] += prot
-                daily_data[entry_date]['fat'] += fat
-                daily_data[entry_date]['carb'] += carb
-                daily_data[entry_date]['fiber'] += fiber
-        
-        return {
-            "daily_data": daily_data,
-            "average": {
-                "kcal": round(sum(d['kcal'] for d in daily_data.values()) / len(daily_data)),
-                "protein": round(sum(d['protein'] for d in daily_data.values()) / len(daily_data)),
-                "fat": round(sum(d['fat'] for d in daily_data.values()) / len(daily_data)),
-                "carb": round(sum(d['carb'] for d in daily_data.values()) / len(daily_data)),
-                "fiber": round(sum(d['fiber'] for d in daily_data.values()) / len(daily_data)),
-            },
-            "days_tracked": len(daily_data)
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка при расчёте данных: {str(e)}")
