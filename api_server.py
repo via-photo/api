@@ -834,151 +834,11 @@ async def recalculate_user_targets(user_id: str, api_key: str = Depends(verify_a
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-
-# Новый endpoint для получения данных недели для графиков
-@app.get("/api/week-data/{user_id}")
-async def get_week_data(user_id: str, week_offset: int = 0, api_key: str = Depends(verify_api_key)):
-    """
-    Получение данных за неделю для графиков
-    """
-    try:
-        # Добавляем обработку ошибок импорта
-        try:
-            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-            from bot import get_user_data, get_history
-        except ImportError as import_error:
-            print(f"Ошибка импорта bot.py в get_week_data: {import_error}")
-            # Возвращаем тестовые данные
-            return generate_test_week_data(week_offset)
-        
-        # Получаем данные пользователя и цели
-        user_data = await get_user_data(user_id)
-        user_targets = {
-            "calories": int(user_data.get("target_kcal", 2000)),
-            "protein": int(user_data.get("target_protein", 100)),
-            "fat": int(user_data.get("target_fat", 67)),
-            "carb": int(user_data.get("target_carb", 250)),
-            "fiber": int(user_data.get("target_fiber", 25))
-        }
-        
-        # Получаем историю
-        history = await get_history(user_id)
-        
-        # Вычисляем даты недели
-        today = datetime.now().date()
-        start_of_week = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
-        week_dates = [(start_of_week + timedelta(days=i)) for i in range(7)]
-        
-        # Инициализируем данные недели
-        week_data = {
-            "dates": [date.strftime("%d.%m") for date in week_dates],
-            "calories": [0] * 7,
-            "proteins": [0] * 7,
-            "fats": [0] * 7,
-            "carbs": [0] * 7,
-            "fiber": [0] * 7
-        }
-        
-        # Обрабатываем записи истории
-        for entry in history:
-            if entry.get("type") != "food":
-                continue
-                
-            # Получаем дату записи
-            entry_timestamp = entry.get("timestamp")
-            if isinstance(entry_timestamp, str):
-                entry_timestamp = datetime.fromisoformat(entry_timestamp.replace('Z', '+00:00'))
-            entry_date = entry_timestamp.date()
-            
-            # Проверяем, попадает ли запись в нашу неделю
-            if entry_date in week_dates:
-                day_index = week_dates.index(entry_date)
-                
-                # Извлекаем БЖУ из ответа
-                response = entry.get("response", "")
-                
-                # Ищем итоговые значения в ответе
-                match = re.search(
-                    r'Итого:\s*[~≈]?\s*(\d+\.?\d*)\s*ккал.*?'
-                    r'Белки[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
-                    r'Жиры[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
-                    r'Углеводы[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
-                    r'Клетчатка[:\-]?\s*([~≈]?\s*\d+\.?\d*)\s*г',
-                    response, flags=re.IGNORECASE | re.DOTALL
-                )
-                
-                if match:
-                    calories = float(match.group(1))
-                    protein = float(match.group(2))
-                    fat = float(match.group(3))
-                    carb = float(match.group(4))
-                    fiber = float(match.group(5))
-                    
-                    week_data["calories"][day_index] += calories
-                    week_data["proteins"][day_index] += protein
-                    week_data["fats"][day_index] += fat
-                    week_data["carbs"][day_index] += carb
-                    week_data["fiber"][day_index] += fiber
-        
-        # Округляем значения
-        for key in ["calories", "proteins", "fats", "carbs"]:
-            week_data[key] = [round(val) for val in week_data[key]]
-        week_data["fiber"] = [round(val, 1) for val in week_data["fiber"]]
-        
-        return {
-            "status": "success",
-            "data": {
-                "week_data": week_data,
-                "user_targets": user_targets,
-                "week_offset": week_offset
-            }
-        }
-        
-    except Exception as e:
-        print(f"Ошибка в get_week_data: {e}")
-        return generate_test_week_data(week_offset)
-
-def generate_test_week_data(week_offset):
-    """Генерация тестовых данных для недели"""
-    import random
-    
-    today = datetime.now().date()
-    start_of_week = today - timedelta(days=today.weekday()) + timedelta(weeks=week_offset)
-    week_dates = [(start_of_week + timedelta(days=i)) for i in range(7)]
-    
-    return {
-        "status": "success",
-        "data": {
-            "week_data": {
-                "dates": [date.strftime("%d.%m") for date in week_dates],
-                "calories": [random.randint(1600, 2200) for _ in range(7)],
-                "proteins": [random.randint(70, 120) for _ in range(7)],
-                "fats": [random.randint(50, 80) for _ in range(7)],
-                "carbs": [random.randint(180, 280) for _ in range(7)],
-                "fiber": [round(random.uniform(18, 35), 1) for _ in range(7)]
-            },
-            "user_targets": {
-                "calories": 2000,
-                "protein": 100,
-                "fat": 67,
-                "carb": 250,
-                "fiber": 25
-            },
-            "week_offset": week_offset
-        }
-    }
-
-
-
-# НОВЫЙ эндпоинт для получения данных дневника с поддержкой дат
+# НОВЫЙ эндпоинт для детального дневника с навигацией по датам
 @app.get("/api/diary-data/{user_id}")
 async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: str = Depends(verify_api_key)):
     """
-    Получение данных дневника питания для пользователя за конкретную дату
+    Получение детальных данных дневника питания для пользователя за конкретную дату
     """
     try:
         # Добавляем обработку ошибок импорта
@@ -1227,4 +1087,7 @@ async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: 
     except Exception as e:
         print(f"Ошибка в get_diary_data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
