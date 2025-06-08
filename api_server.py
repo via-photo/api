@@ -25,6 +25,7 @@ app.add_middleware(
     allow_headers=["*"],
  )
 
+
 # Модели данных
 class MealEntry(BaseModel):
     time: str
@@ -60,6 +61,18 @@ class Recipe(BaseModel):
     description: str
     portions: int
     nutrition: NutritionStats
+
+# Модель для обновления профиля пользователя
+class ProfileUpdateData(BaseModel):
+    gender: Optional[str] = None
+    age: Optional[int] = None
+    height: Optional[int] = None
+    weight: Optional[float] = None
+    goal: Optional[float] = None
+    activity: Optional[str] = None
+    pregnant: Optional[bool] = None
+    utc_offset: Optional[int] = None
+    morning_reminded: Optional[bool] = None
 
 # Функция для проверки API-ключа (в реальном приложении должна быть более надежной)
 async def verify_api_key(x_api_key: str = Header(None)):
@@ -432,6 +445,86 @@ async def add_meal(meal_data: MealData, api_key: str = Depends(verify_api_key)):
             "status": "success", 
             "message": f"Прием пищи '{meal_data.meal_name}' успешно добавлен для пользователя {meal_data.user_id}"
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# НОВЫЕ МАРШРУТЫ ДЛЯ ПРОФИЛЯ ПОЛЬЗОВАТЕЛЯ
+
+@app.get("/api/profile/{user_id}", response_model=Dict[str, Any])
+async def get_profile(user_id: str, api_key: str = Depends(verify_api_key)):
+    """
+    Получение данных профиля пользователя
+    """
+    try:
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import get_user_data
+        
+        # Получаем данные пользователя
+        user_data = await get_user_data(user_id)
+        
+        # Формируем данные профиля
+        profile_data = {
+            "gender": user_data.get("gender", ""),
+            "age": user_data.get("age", 0),
+            "height": user_data.get("height", 0),
+            "weight": user_data.get("weight", 0),
+            "goal": user_data.get("goal", 0),
+            "activity": user_data.get("activity", ""),
+            "pregnant": user_data.get("pregnant", False),
+            "utc_offset": user_data.get("utc_offset", 0),
+            "morning_reminded": user_data.get("morning_reminded", False),
+            "target_kcal": user_data.get("target_kcal", 0),
+            "target_protein": user_data.get("target_protein", 0),
+            "target_fat": user_data.get("target_fat", 0),
+            "target_carb": user_data.get("target_carb", 0),
+            "target_fiber": user_data.get("target_fiber", 0)
+        }
+        
+        return {"status": "success", "data": profile_data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/profile/{user_id}", response_model=Dict[str, Any])
+async def update_profile(user_id: str, profile_data: ProfileUpdateData, api_key: str = Depends(verify_api_key)):
+    """
+    Обновление данных профиля пользователя
+    """
+    try:
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import get_user_data, update_user_data
+        
+        # Получаем текущие данные пользователя
+        user_data = await get_user_data(user_id)
+        
+        # Обновляем только предоставленные поля
+        update_dict = profile_data.dict(exclude_unset=True)
+        for key, value in update_dict.items():
+            if value is not None:
+                user_data[key] = value
+        
+        # Сохраняем обновленные данные
+        await update_user_data(user_id, user_data)
+        
+        return {"status": "success", "message": "Профиль успешно обновлен"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/profile/{user_id}/recalculate", response_model=Dict[str, Any])
+async def recalculate_targets(user_id: str, api_key: str = Depends(verify_api_key)):
+    """
+    Пересчет целевых значений для пользователя
+    """
+    try:
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import calculate_and_send_targets
+        
+        # Пересчитываем целевые значения
+        await calculate_and_send_targets(None, user_id)
+        
+        return {"status": "success", "message": "Целевые значения успешно пересчитаны"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
