@@ -559,10 +559,31 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                 print(f"Ошибка обработки записи {i+1}: {e}")
                 continue
         
-        print(f"Обработано записей. Всего калорий: {total_calories}, дней: {len(days)}")
+        print(f"Обработано записей. Всего калорий: {total_calories}, дней с записями: {len(days)}")
         
         days_tracked = len(days)
-        avg_calories = round(total_calories / days_tracked) if days_tracked > 0 else 0
+        
+        # Правильный расчет средних калорий - учитываем общий период отслеживания
+        # Находим первую и последнюю записи для определения периода
+        if food_entries:
+            # Сортируем записи по дате
+            sorted_entries = sorted(food_entries, key=lambda x: x.get("timestamp") if isinstance(x.get("timestamp"), datetime) else datetime.fromisoformat(str(x.get("timestamp"))))
+            first_date = sorted_entries[0].get("timestamp")
+            last_date = sorted_entries[-1].get("timestamp")
+            
+            if isinstance(first_date, str):
+                first_date = datetime.fromisoformat(first_date)
+            if isinstance(last_date, str):
+                last_date = datetime.fromisoformat(last_date)
+                
+            # Считаем общее количество дней в периоде
+            total_period_days = (last_date.date() - first_date.date()).days + 1
+            avg_calories = round(total_calories / total_period_days) if total_period_days > 0 else 0
+            
+            print(f"Период отслеживания: {first_date.date()} - {last_date.date()} ({total_period_days} дней)")
+            print(f"Средние калории: {total_calories} / {total_period_days} = {avg_calories}")
+        else:
+            avg_calories = 0
         
         # Расчет распределения БЖУ
         total_nutrients = total_protein + total_fat + total_carb
