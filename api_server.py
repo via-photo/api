@@ -32,6 +32,7 @@ class MealEntry(BaseModel):
     name: str
     calories: int
     items: List[Dict[str, Any]]
+    image: Optional[str] = None  # Добавлено поле для изображения в формате base64
 
 class DiaryDay(BaseModel):
     date: str
@@ -231,7 +232,8 @@ async def get_day_summary(user_id: str, date_str: Optional[str] = None, api_key:
                 "carb": carb,
                 "fiber": fiber,
                 "full_response": entry['response'],
-                "timestamp": entry['timestamp'].isoformat()
+                "timestamp": entry['timestamp'].isoformat(),
+                "image": entry.get('compressed_image')  # Добавляем изображение если есть
             })
         
         # Получаем целевые значения
@@ -1255,7 +1257,8 @@ async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: 
                 "fiber": fiber,
                 "items": items,
                 "full_response": entry['response'],
-                "timestamp": entry['timestamp'].isoformat()
+                "timestamp": entry['timestamp'].isoformat(),
+                "image": entry.get('compressed_image')  # Добавляем изображение если есть
             })
         
         # Рассчитываем остатки
