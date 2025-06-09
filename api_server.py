@@ -511,6 +511,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         total_protein = 0
         total_fat = 0
         total_carb = 0
+        total_fiber = 0
         
         print(f"Начинаем обработку {len(food_entries)} записей о еде")
         
@@ -530,27 +531,30 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                         "calories": 0,
                         "protein": 0,
                         "fat": 0,
-                        "carb": 0
+                        "carb": 0,
+                        "fiber": 0
                     }
                 
-                # Извлекаем БЖУ из ответа
+                # Извлекаем БЖУ из ответа (включая клетчатку)
                 response = entry.get("response", "")
-                match = re.search(r"(\d+(?:[.,]\d+)?) ккал, Белки: (\d+(?:[.,]\d+)?) г, Жиры: (\d+(?:[.,]\d+)?) г, Углеводы: (\d+(?:[.,]\d+)?) г", response)
+                match = re.search(r"(\d+(?:[.,]\d+)?) ккал, Белки: (\d+(?:[.,]\d+)?) г, Жиры: (\d+(?:[.,]\d+)?) г, Углеводы: (\d+(?:[.,]\d+)?) г, Клетчатка: (\d+(?:[.,]\d+)?) г", response)
                 
                 if match:
-                    kcal, prot, fat, carb = map(lambda x: float(x.replace(",", ".")), match.groups()[:4])
+                    kcal, prot, fat, carb, fiber = map(lambda x: float(x.replace(",", ".")), match.groups())
                     days[date_str]["calories"] += kcal
                     days[date_str]["protein"] += prot
                     days[date_str]["fat"] += fat
                     days[date_str]["carb"] += carb
+                    days[date_str]["fiber"] += fiber
                     
                     total_calories += kcal
                     total_protein += prot
                     total_fat += fat
                     total_carb += carb
+                    total_fiber += fiber
                     
                     if i < 5:  # Логируем первые 5 записей для отладки
-                        print(f"Запись {i+1}: {kcal} ккал, {prot}г белков, {fat}г жиров, {carb}г углеводов")
+                        print(f"Запись {i+1}: {kcal} ккал, {prot}г белков, {fat}г жиров, {carb}г углеводов, {fiber}г клетчатки")
                 else:
                     if i < 5:  # Логируем первые 5 записей без БЖУ
                         print(f"Запись {i+1}: БЖУ не найдены в ответе: {response[:100]}...")
@@ -615,7 +619,8 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                     "calories": 0,
                     "protein": 0,
                     "fat": 0,
-                    "carb": 0
+                    "carb": 0,
+                    "fiber": 0
                 })
                 daily_data.append({
                     "date": current_date.strftime("%d.%m.%Y"),
@@ -623,7 +628,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                     "protein": day_data["protein"],
                     "fat": day_data["fat"],
                     "carb": day_data["carb"],
-                    "fiber": 0  # TODO: добавить расчет клетчатки
+                    "fiber": day_data["fiber"]
                 })
                 current_date += timedelta(days=1)
         
