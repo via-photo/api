@@ -1,4 +1,3 @@
-
 import logging
 import openai
 from openai import AsyncOpenAI
@@ -26,9 +25,10 @@ from collections import OrderedDict
 from sqlalchemy import delete
 from aiogram.dispatcher.filters import BoundFilter
 from aiogram import types
+import random
 # 🔧 Глобальный кэш: название продукта -> нутриенты на 100 г
 from collections import OrderedDict
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo, WebAppData
 
 persistent_keyboard = ReplyKeyboardMarkup(
     keyboard=[
@@ -79,9 +79,11 @@ async def calculate_summary_text(user_id: str, date_str: str) -> str:
 
         async with async_session() as session:
             result = await session.execute(
-                select(History).where(
-                    History.user_id == user_id,
-                    History.date == target_date
+                select(UserHistory).where(
+                    UserHistory.user_id == user_id,
+                    UserHistory.timestamp >= datetime.combine(target_date, datetime.min.time()),
+                    UserHistory.timestamp < datetime.combine(target_date + timedelta(days=1), datetime.min.time()),
+                    UserHistory.type == "food"
                 )
             )
             entries = result.scalars().all()
@@ -191,6 +193,7 @@ class UserHistory(Base):
     timestamp = Column(DateTime)
     type = Column(String)
     data = Column(JSON)
+    compressed_image = Column(Text)  # Добавлено поле для сжатых изображений в формате base64
 
 
 
@@ -206,6 +209,21 @@ class Product(Base):
 
 async def search_product_by_name(name: str) -> dict:
     async with async_session() as session:
+        # 1. Сначала точное совпадение по имени
+        result = await session.execute(
+            select(Product).where(Product.name.ilike(name)).limit(1)
+        )
+        product = result.scalar()
+        if product:
+            return {
+                "name": product.name,
+                "kcal": product.kcal,
+                "protein": product.protein,
+                "fat": product.fat,
+                "carb": product.carb,
+                "fiber": product.fiber,
+            }
+        # 2. Если не совпало — ищем по подстроке (как было раньше)
         result = await session.execute(
             select(Product).where(Product.name.ilike(f"%{name}%")).limit(1)
         )
@@ -243,6 +261,41 @@ import unicodedata
 def normalize(text: str) -> str:
     text = unicodedata.normalize("NFKD", text.lower()).replace("ё", "е")
     return "".join([c for c in text if not unicodedata.combining(c)]).strip()
+
+def compress_image(image_bytes: bytes, max_size: tuple = (600, 600), quality: int = 70) -> str:
+    """
+    Сжимает изображение и возвращает его в формате base64
+    
+    Args:
+        image_bytes: Исходные байты изображения
+        max_size: Максимальный размер (ширина, высота)
+        quality: Качество JPEG (1-100)
+    
+    Returns:
+        str: Сжатое изображение в формате base64
+    """
+    try:
+        # Открываем изображение
+        image = Image.open(io.BytesIO(image_bytes))
+        
+        # Конвертируем в RGB если нужно (для JPEG)
+        if image.mode in ('RGBA', 'LA', 'P'):
+            image = image.convert('RGB')
+        
+        # Изменяем размер с сохранением пропорций
+        image.thumbnail(max_size, Image.Resampling.LANCZOS)
+        
+        # Сохраняем в буфер
+        buffer = io.BytesIO()
+        image.save(buffer, format='JPEG', quality=quality, optimize=True)
+        
+        # Конвертируем в base64
+        image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+        
+        return image_base64
+    except Exception as e:
+        logging.error(f"Ошибка при сжатии изображения: {e}")
+        return ""
 
 async def get_batch_kbzu(names: list[str]) -> dict:
     results = []
@@ -347,6 +400,13 @@ async def update_user_data(user_id: str, data: dict):
 async def add_history_entry(user_id: str, entry: dict):
     async with async_session() as session:
         async with session.begin():
+            # Постоянная отладочная информация
+            if entry.get('type') == 'food':
+                has_image = bool(entry.get('compressed_image'))
+                print(f"💾 СОХРАНЕНИЕ: Пользователь {user_id}, тип=food, изображение={'ЕСТЬ' if has_image else 'НЕТ'}")
+                if has_image:
+                    print(f"💾 Размер изображения: {len(entry.get('compressed_image', ''))} символов")
+            
             session.add(UserHistory(user_id=user_id, **entry))
 
 async def get_history(user_id: str) -> list:
@@ -355,11 +415,19 @@ async def get_history(user_id: str) -> list:
         entries = result.scalars().all()
         history_list = []
         for e in entries:
+            # Отладочная информация для каждой записи
+            has_image = bool(e.compressed_image)
+            if e.type == "food":
+                print(f"🔍 get_history: запись {e.id}, тип={e.type}, изображение={'есть' if has_image else 'НЕТ'}")
+                if has_image:
+                    print(f"🔍 Длина изображения в БД: {len(e.compressed_image)} символов")
+            
             history_list.append({
                 "prompt": e.prompt,
                 "response": e.response,
                 "timestamp": e.timestamp,
-                "type": e.type
+                "type": e.type,
+                "compressed_image": e.compressed_image  # Добавляем поле compressed_image
             })
         return history_list
 
@@ -392,56 +460,62 @@ async def send_morning_reminders():
     ]
 
     while True:
-        now_utc = datetime.utcnow()
-        async with async_session() as session:
-            result = await session.execute(select(UserData))
-            users = result.scalars().all()
+        try:
+            now_utc = datetime.utcnow()
+            async with async_session() as session:
+                result = await session.execute(select(UserData))
+                users = result.scalars().all()
 
-            for user in users:
-                data = user.data
-                offset = data.get("utc_offset", 0)
-                local_time = now_utc + timedelta(hours=offset)
+                for user in users:
+                    data = user.data
+                    offset = data.get("utc_offset", 0)
+                    user_tz = timezone(timedelta(hours=offset))
+                    local_time = now_utc.replace(tzinfo=timezone.utc).astimezone(user_tz)
 
-                if local_time.hour == 9 and 30 <= local_time.minute < 34 and not data.get("morning_reminded", False):
-                    user_id = user.user_id
+                    if local_time.hour == 9 and 30 <= local_time.minute < 34 and not data.get("morning_reminded", False):
+                        user_id = user.user_id
 
-                    # Проверим, есть ли записи за сегодня
-                    result = await session.execute(
-                        select(UserHistory).where(
-                            UserHistory.user_id == user_id,
-                            UserHistory.timestamp >= datetime.combine(local_time.date(), datetime.min.time())
+                        result = await session.execute(
+                            select(UserHistory).where(
+                                UserHistory.user_id == user_id,
+                                UserHistory.timestamp >= datetime.combine(local_time.date(), datetime.min.time())
+                            )
                         )
-                    )
-                    entries = result.scalars().all()
+                        entries = result.scalars().all()
 
-                    try:
-                        reminder_index = data.get("morning_index", 0)
-                        message = reminder_messages[reminder_index % len(reminder_messages)]
+                        try:
+                            last_index = data.get("last_morning_index", -1)
+                            available_indexes = [i for i in range(len(reminder_messages)) if i != last_index]
+                            new_index = random.choice(available_indexes)
+                            message = reminder_messages[new_index]
 
-                        if not entries:
-                            await bot.send_message(user_id, message)
-                            data["morning_reminded"] = True
+                            if not entries:
+                                await bot.send_message(user_id, message)
+                                data["morning_reminded"] = True
 
-                        data["morning_index"] = reminder_index + 1
-                        user.data = data
-                        await session.commit()
-                    except Exception as e:
-                        logging.warning(f"Не удалось отправить утреннее сообщение {user_id}: {e}")
+                            data["last_morning_index"] = new_index
+                            user.data = data
+                            await session.commit()
 
-                elif local_time.hour >= 10:
-                    # Сброс флага на следующий день
-                    if data.get("morning_reminded"):
-                        data["morning_reminded"] = False
-                        user.data = data
-                        await session.commit()
+                        except Exception as message_error:
+                            logging.warning(f"Не удалось отправить утреннее сообщение {user_id}: {message_error}")
 
-        await asyncio.sleep(300)  # каждые 5 минут
+                    elif local_time.hour >= 10:
+                        if data.get("morning_reminded"):
+                            data["morning_reminded"] = False
+                            user.data = data
+                            await session.commit()
+
+        except Exception as global_error:
+            logging.error(f"Ошибка в цикле отправки напоминаний: {global_error}")
+
+        await asyncio.sleep(300)
 
 
 async def clean_old_photos():
     while True:
         await asyncio.sleep(3600)  # run every hour
-        cutoff = datetime.now() - timedelta(hours=12)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=12)
         to_delete = [uid for uid, data in recent_photos.items() if data["time"] < cutoff]
         for uid in to_delete:
             del recent_photos[uid]
@@ -597,13 +671,15 @@ functions = [
 
 @dp.message_handler(Command("webapp"))
 async def send_webapp_button(message: types.Message):
+    user_id = message.from_user.id
     keyboard = InlineKeyboardMarkup().add(
         InlineKeyboardButton(
             text="Открыть профиль",
-            web_app=WebAppInfo(url="https://reliable-toffee-e14334.netlify.app/")
+            web_app=WebAppInfo(url=f"https://viaphoto.netlify.app/?userId={user_id}" )
         )
     )
     await message.answer("Нажми кнопку, чтобы открыть профиль 👇", reply_markup=keyboard)
+
 
 
 
@@ -622,9 +698,10 @@ async def show_today_summary_callback(callback_query: CallbackQuery):
     chat_id = callback_query.message.chat.id
     data = await get_user_data(user_id)
     user_offset = data.get("utc_offset", 0)
-    target_date = datetime.utcnow().astimezone(timezone(timedelta(hours=user_offset))).date()
+    user_tz = timezone(timedelta(hours=user_offset))
+    target_date = datetime.now(user_tz).date()
     history_list = await get_history(user_id)
-    if not history_list or all(e["timestamp"].date() != target_date for e in history_list):
+    if not history_list or all(e["timestamp"].astimezone(user_tz).date() != target_date for e in history_list):
         # If no history at all or none for today
         if not history_list:
             await bot.send_message(chat_id, "Ты ещё не присылала фото еды 🍽️")
@@ -632,7 +709,8 @@ async def show_today_summary_callback(callback_query: CallbackQuery):
             await bot.send_message(chat_id, f"Нет данных на {target_date.strftime('%Y-%m-%d')} 📅")
         await callback_query.answer()
         return
-    entries_today = [e for e in history_list if e["timestamp"].date() == target_date]
+    entries_today = [e for e in history_list if e["timestamp"].astimezone(user_tz).date() == target_date]
+
     # Calculate totals and send each entry summary with delete button
     total_kcal = total_prot = total_fat = total_carb = total_fiber = 0
     for i, entry in enumerate(entries_today, start=1):
@@ -768,9 +846,10 @@ async def delete_entry(callback_query: CallbackQuery):
         summary_message_id = data.get("summary_message_id")
         if summary_message_id:
             user_offset = data.get("utc_offset", 0)
-            today = datetime.utcnow().astimezone(timezone(timedelta(hours=user_offset))).date()
+            user_tz = timezone(timedelta(hours=user_offset))
+            target_date = datetime.now(user_tz).date()
             # Recompute todaаy's totals without the removed entry
-            entries_today = [e for e in history_list if e["timestamp"].date() == today and e["timestamp"] != entry_to_remove["timestamp"]]
+            entries_today = [e for e in history_list if e["timestamp"].date() == target_date and e["timestamp"] != entry_to_remove["timestamp"]]
             total_kcal = total_prot = total_fat = total_carb = total_fiber = 0
             for e in entries_today:
                 kcal = prot = fat = carb = fiber = 0
@@ -1207,7 +1286,11 @@ async def calculate_and_send_targets(chat_id, user_id: str):
 @dp.message_handler(content_types=ContentType.PHOTO)
 async def handle_photo(message: types.Message):
     user_id = str(message.from_user.id)
-    now = datetime.now()
+    
+    # ОТЛАДКА: Самое начало обработки фото
+    print(f"🔍 НАЧАЛО: Получено фото от пользователя {user_id}")
+    
+    now = datetime.now(timezone.utc)
     data = await get_user_data(user_id)
     usage_count = data.get("usage_count", 0)
     show_hint = usage_count < 2
@@ -1219,6 +1302,8 @@ async def handle_photo(message: types.Message):
         if isinstance(last_time, str):
             try:
                 last_time_dt = datetime.fromisoformat(last_time)
+                if last_time_dt.tzinfo is None:
+                    last_time_dt = last_time_dt.replace(tzinfo=timezone.utc)
             except Exception:
                 last_time_dt = None
         else:
@@ -1229,8 +1314,9 @@ async def handle_photo(message: types.Message):
 
     history_list = await get_history(user_id)
     user_offset = data.get("utc_offset", 0)
-    today = datetime.utcnow().astimezone(timezone(timedelta(hours=user_offset))).date()
-    photo_entries_today = [e for e in history_list if e.get("type") == "photo" and e["timestamp"].date() == today]
+    user_tz = timezone(timedelta(hours=user_offset))
+    today = datetime.now(user_tz).date()
+    photo_entries_today = [e for e in history_list if e.get("type") == "food" and e["timestamp"].date() == today]
     if len(photo_entries_today) >= 10:
         data["last_photo_time"] = now
         await update_user_data(user_id, data)
@@ -1253,7 +1339,7 @@ async def handle_photo(message: types.Message):
         if user_caption else None
     )
 
-    recent_photos[user_id] = {"image_bytes": image_bytes, "time": datetime.now()}
+    recent_photos[user_id] = {"image_bytes": image_bytes, "time": datetime.now(timezone.utc)}
     data["last_prompt"] = user_caption or ""
     data["prompts"] = []
     await update_user_data(user_id, data)
@@ -1263,17 +1349,17 @@ async def handle_photo(message: types.Message):
         messages = [
             {"role": "system", "content": (
                 "Ты нутрициолог. Пользователь прислал фото еды.\n\n"
-                "Определи, какие продукты на фото, примерный вес каждого (в граммах), и верни список в формате:\n\n"
-                "[{\"name\": \"название продукта на русском языке\", \"grams\": число}]\n\n"
-                "⚠️ ВАЖНО:\n"
-                "Если блюдо сложное — распиши его по составу. Даже если оно кажется простым, всё равно укажи компоненты и их примерный вес.\n"
-                "- Используй ТОЛЬКО готовые продукты — например: «гречка варёная», «куриная грудка жареная», «банан».\n"
-                "- Оценивай вес по справочным данным и типичным порциям, характерным для российской кухни, и используй простые, распространённые в России продукты.\n"
-                "- Игнорируй людей, руки, фон, посуду и всё, что не еда.\n"
-                "- Если на упаковке чётко видно название бренда (например, «Йогурт Epica манго», «Almette сыр лёгкий») — установи \"branded\": true\n"
-                "- В остальных случаях — установи \"branded\": false\n"
-                "- Не оценивай КБЖУ сам — только определи название, вес и branded\n"
-                "- Ответ строго в формате JSON без комментариев, пояснений и кода."
+                "Определи, какие продукты на фото, примерный ВЕС каждого (в граммах).\n"
+                "⚠️ Для каждого ингредиента всегда возвращай два значения веса — минимальный (grams_min) и максимальный (grams_max) — на основании видимого объёма.\n"
+                "Если на фото есть предметы с известным размером — такие как вилка, ложка, рука, чашка, кружка или стандартная тарелка — используй их как масштаб для определения веса и размера порции.\n"
+                "Если невозможно использовать масштаб, оценивай по минимально возможной стандартной порции или минимальному объёму в граммах для этого продукта в России (например, ломтик хлеба — 20-40 г, банан — 100-130 г и т.п.).\n"
+                "Всегда указывай только те продукты или ингредиенты, которые явно видны на фото. Каждый видимый ингридиент указывай только ОТДЕЛЬНО. Запрещено объединять продукты в одно блюдо, даже если они соприкасаются. Только раздельные позиции — например: 'лаваш', 'сыр', а не 'лаваш с сыром'\n"
+                "Только продукты в готовом виде (например, 'гречка варёная', 'куриная грудка жареная').\n"
+                "Если видно бренд — укажи 'branded': true, иначе — 'branded': false\n"
+                "Не оценивай КБЖУ, только название, граммы и branded.\n"
+                "Если на фото есть не относящиеся к делу люди, другие части тела, фон — не анализируй их как ингредиенты, а рассматривай только для оценки масштаба."
+                "Ответ СТРОГО верни в формате JSON-списка без пояснений и кода:\n"
+                "[{\"name\": \"название продукта на русском языке\", \"grams_min\": число, \"grams_max\": число, \"branded\": true/false}]"
             )},
             {"role": "user", "content": [
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
@@ -1300,7 +1386,7 @@ async def handle_photo(message: types.Message):
 
         logging.warning(f"[GPT raw JSON] {content}")
         try:
-            food_items = json.loads(content)
+            food_items = json.loads(content)  # <= ЭТУ строку и всё ниже не меняй!
         except json.JSONDecodeError:
             await message.reply("⚠️ Не удалось обработать фото. Попробуй ещё раз.")
             return
@@ -1310,7 +1396,13 @@ async def handle_photo(message: types.Message):
         not_found = []
         for item in food_items:
             name = item["name"]
-            grams = item["grams"]
+            grams_min = item.get("grams_min")
+            grams_max = item.get("grams_max")
+            if grams_min is not None and grams_max is not None:
+                grams = (grams_min + grams_max) // 2
+            else:
+                grams = grams_min or grams_max
+        
             is_branded = item.get("branded", False)  # 🟡 добавлено поле branded
             cached = product_cache.get(name.lower())
             if cached:
@@ -1426,14 +1518,32 @@ async def handle_photo(message: types.Message):
         return
 
     answer = round_totals_to_int(answer)
-
+    if now.tzinfo is not None:
+        now = now.replace(tzinfo=None)
+    
+    # Сжимаем изображение для сохранения в базу данных
+    compressed_image = compress_image(image_bytes, max_size=(600, 600), quality=70)
+    
+    # ОТЛАДКА: Проверяем сжатие изображения
+    print(f"🔍 ОТЛАДКА: Обработка фото для пользователя {user_id}")
+    print(f"🔍 Размер исходного изображения: {len(image_bytes)} байт")
+    print(f"🔍 Сжатое изображение: {'создано' if compressed_image else 'НЕ СОЗДАНО'}")
+    if compressed_image:
+        print(f"🔍 Размер сжатого изображения: {len(compressed_image)} символов")
+    
     entry = {
         "prompt": user_caption or "",
         "response": answer,
         "timestamp": now,
-        "type": "photo",
-        "data": parsed_ingredients
+        "type": "food",  # Исправлено: было "photo", должно быть "food"
+        "data": parsed_ingredients,
+        "compressed_image": compressed_image  # Добавляем сжатое изображение
     }
+    
+    print(f"🔍 ОТЛАДКА: Готовим запись для сохранения:")
+    print(f"🔍 Тип записи: {entry['type']}")
+    print(f"🔍 Изображение в записи: {'есть' if entry.get('compressed_image') else 'НЕТ'}")
+    
     await add_history_entry(user_id, entry)
 
     buttons = InlineKeyboardMarkup().add(
@@ -1499,7 +1609,7 @@ from io import BytesIO
 @dp.message_handler(content_types=[ContentType.VOICE, ContentType.AUDIO], fix_mode=False)
 async def handle_voice_audio(message: types.Message):
     user_id = str(message.from_user.id)
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     data = await get_user_data(user_id)
     usage_count = data.get("usage_count", 0)
     show_hint = usage_count < 2
@@ -1548,7 +1658,7 @@ async def handle_voice_audio(message: types.Message):
         messages = [
             {"role": "system", "content": (
                 "Ты нутрициолог. Пользователь описал голосом, что он ел.\n\n"
-                "Определи, какие продукты он упомянул и примерный вес каждого (в граммах).\n\n"
+                "Определи, какие продукты он упомянул и средний вес каждого (в граммах).\n\n"
                 "Формат ответа:\n"
                 "[{\"name\": \"название продукта на русском языке\", \"grams\": число}]\n\n"
                 "⚠️ Если в описании есть конкретное название бренда (например, «Йогурт Epica манго»), пометь его как branded: true\n"
@@ -1687,7 +1797,8 @@ async def handle_voice_audio(message: types.Message):
 
     answer = "\n".join(text_lines)
     answer = round_totals_to_int(answer)
-
+    if now.tzinfo is not None:
+        now = now.replace(tzinfo=None)    
     entry = {
         "prompt": user_text,
         "response": answer,
@@ -1781,7 +1892,7 @@ async def restart_profile_callback(callback_query: CallbackQuery):
 @dp.message_handler(fix_mode=False)
 async def handle_text_food(message: types.Message):
     user_id = str(message.from_user.id)
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     data = await get_user_data(user_id)
     usage_count = data.get("usage_count", 0)
     show_hint = usage_count < 2
@@ -1808,7 +1919,7 @@ async def handle_text_food(message: types.Message):
         messages = [
             {"role": "system", "content": (
                 "Ты нутрициолог. Пользователь описал текстом, что он ел.\n\n"
-                "Определи, какие продукты он упомянул и примерный вес каждого (в граммах).\n\n"
+                "Определи, какие продукты он упомянул и средний вес каждого (в граммах).\n\n"
                 "Формат ответа:\n"
                 "[{\"name\": \"название продукта на русском языке\", \"grams\": число}]\n\n"
                 "⚠️ ВАЖНО:\n"
@@ -1950,7 +2061,8 @@ async def handle_text_food(message: types.Message):
 
     answer = "\n".join(text_lines)
     answer = round_totals_to_int(answer)
-
+    if now.tzinfo is not None:
+        now = now.replace(tzinfo=None)
     entry = {
         "prompt": user_text,
         "response": answer,
@@ -1972,7 +2084,7 @@ from io import BytesIO
 @dp.message_handler(content_types=[ContentType.TEXT, ContentType.VOICE, ContentType.AUDIO], fix_mode=True)
 async def handle_fix_input(message: types.Message):
     user_id = str(message.from_user.id)
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     data = await get_user_data(user_id)
 
     # ⛔ Страховка: сбросить режим, если fix_mode невалидный или запись не найдена
@@ -1986,6 +2098,8 @@ async def handle_fix_input(message: types.Message):
 
     try:
         target_ts = datetime.fromisoformat(timestamp_str)
+        if target_ts.tzinfo is None:
+            target_ts = target_ts.replace(tzinfo=timezone.utc)
     except:
         data["fix_mode"] = None
         data["prompts"] = []
@@ -1994,7 +2108,11 @@ async def handle_fix_input(message: types.Message):
         return
 
     history_list = await get_history(user_id)
-    matched_entries = [e for e in history_list if e["timestamp"] == target_ts]
+    # Сравниваем timestamp как строку, без микросекунд
+    def ts_clean(val):
+        return str(val).split(".")[0]  # отсекаем микросекунды
+
+    matched_entries = [e for e in history_list if ts_clean(e["timestamp"]) == ts_clean(target_ts)]
     if not matched_entries:
         data["fix_mode"] = None
         data["prompts"] = []
@@ -2049,9 +2167,23 @@ async def handle_fix_input(message: types.Message):
         return
 
     target_ts = datetime.fromisoformat(timestamp_str)
+    if target_ts.tzinfo is None:
+        target_ts = target_ts.replace(tzinfo=timezone.utc)
 
-    # Ищем точную запись по timestamp
-    previous_entries = [e for e in history_list if e["timestamp"] == target_ts]
+    # Ищем запись по timestamp, игнорируя микросекунды и разные типы хранения времени
+    def ts_clean(val):
+        try:
+            # если это datetime
+            from datetime import datetime
+            if isinstance(val, datetime):
+                return val.replace(microsecond=0, tzinfo=None).isoformat()
+            # если строка, отрезаем микросекунды
+            return str(val).split(".")[0]
+        except Exception:
+            return str(val)
+    ts_target = ts_clean(target_ts)
+
+    previous_entries = [e for e in history_list if ts_clean(e["timestamp"]) == ts_target]
     if not previous_entries:
         await message.reply("⚠️ Не удалось найти запись для исправления.")
         return
@@ -2110,7 +2242,8 @@ async def handle_fix_input(message: types.Message):
                         ))
             except Exception as e:
                 logging.error(f"Failed to delete previous entry: {e}")
-
+        if now.tzinfo is not None:
+            now = now.replace(tzinfo=None)
         new_entry = {
             "prompt": "\n".join(data.get("prompts", [])),
             "response": answer,
@@ -2140,40 +2273,97 @@ async def handle_fix_input(message: types.Message):
 
 
 
-@dp.message_handler(content_types=ContentType.WEB_APP_DATA)
-async def handle_webapp_data(message: types.Message):
+# Обработчик для данных от WebApp
+@dp.message_handler(content_types=types.ContentTypes.WEB_APP_DATA)
+async def web_app_handler(message: types.Message):
+    user_id = str(message.from_user.id)
+    web_app_data = message.web_app_data.data
+    
     try:
-        data = json.loads(message.web_app_data.data)
-
-        if data.get("type") == "get_summary":
-            user_id = str(message.from_user.id)
-            date_str = data.get("date")
-
-            summary_text = await calculate_summary_text(user_id, date_str)
-
-            await bot.send_message(
-                chat_id=message.chat.id,
-                text=json.dumps({"type": "summary", "text": summary_text})
-            )
-
-        elif data.get("type") == "delete_entry":
-            entry_id = data.get("id")
-
-            # 🔥 Удаление записи из БД по ID
-            async with async_session() as session:
-                await session.execute(
-                    delete(History).where(History.id == entry_id)
-                )
-                await session.commit()
-
-            await message.answer(f"🗑 Удалено блюдо с ID {entry_id}")
-
+        # Преобразуем JSON-строку в словарь Python
+        import json
+        data = json.loads(web_app_data)
+        
+        # Обработка различных действий от WebApp
+        if data.get('action') == 'add_meal':
+            # Пользователь нажал кнопку "Добавить приём пищи"
+            await message.answer("Отправьте фото блюда или опишите, что вы съели")
+            
+        elif data.get('action') == 'get_recipe_details':
+            # Пользователь запросил детали рецепта
+            recipe_name = data.get('recipe', '')
+            await message.answer(f"Вы запросили рецепт: {recipe_name}\nПодробности рецепта будут здесь...")
+            
+        else:
+            # Неизвестное действие
+            await message.answer(f"Получены данные от WebApp: {web_app_data}")
+            
     except Exception as e:
-        await message.answer(f"❌ Ошибка при обработке WebApp: {str(e)}")
+        await message.answer(f"Ошибка при обработке данных от WebApp: {str(e)}")
 
 
 
 
+
+
+
+async def check_and_fix_database_structure():
+    """Проверяет и исправляет структуру таблицы UserHistory для поддержки изображений"""
+    try:
+        async with async_session() as session:
+            # Для PostgreSQL проверяем структуру таблицы
+            print("🔍 Проверяем структуру таблицы user_history...")
+            
+            result = await session.execute(text("""
+                SELECT column_name, data_type 
+                FROM information_schema.columns 
+                WHERE table_name = 'user_history'
+                ORDER BY ordinal_position
+            """))
+            
+            columns = result.fetchall()
+            column_names = [col[0] for col in columns]
+            
+            print("📋 Текущие колонки в таблице:")
+            for col in columns:
+                print(f"  - {col[0]} ({col[1]})")
+            
+            # Проверяем есть ли поле compressed_image
+            if 'compressed_image' not in column_names:
+                print("❌ Поле compressed_image отсутствует!")
+                print("🔧 Добавляем поле compressed_image...")
+                
+                await session.execute(text("ALTER TABLE user_history ADD COLUMN compressed_image TEXT"))
+                await session.commit()
+                
+                print("✅ Поле compressed_image добавлено!")
+            else:
+                print("✅ Поле compressed_image уже существует")
+            
+            # Проверяем несколько последних записей
+            print("\n🔍 Проверяем последние записи типа 'food'...")
+            
+            result = await session.execute(text("""
+                SELECT id, user_id, type, 
+                       CASE WHEN compressed_image IS NULL THEN 'NULL'
+                            WHEN compressed_image = '' THEN 'ПУСТАЯ СТРОКА'
+                            ELSE 'ЕСТЬ ДАННЫЕ (' || LENGTH(compressed_image) || ' символов)'
+                       END as image_status,
+                       timestamp
+                FROM user_history 
+                WHERE type = 'food' 
+                ORDER BY timestamp DESC 
+                LIMIT 5
+            """))
+            
+            records = result.fetchall()
+            
+            print("📋 Последние 5 записей типа 'food':")
+            for record in records:
+                print(f"  ID: {record[0]}, User: {record[1]}, Изображение: {record[3]}, Время: {record[4]}")
+                
+    except Exception as e:
+        print(f"❌ Ошибка при проверке структуры БД: {e}")
 
 
 # Startup and shutdown events
@@ -2183,6 +2373,8 @@ async def on_startup(dp):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    # 🔧 Проверяем и исправляем структуру таблицы UserHistory
+    await check_and_fix_database_structure()
 
     # Запустить фоновую задачу
     asyncio.create_task(send_morning_reminders())
@@ -2218,10 +2410,25 @@ def normalize_name(text: str) -> str:
 
 async def match_product_name_to_table(name: str, table_name: str) -> dict | None:
     async with async_session() as session:
-        result = await session.execute(text(f"SELECT name, kcal, protein, fat, carb, fiber FROM {table_name}"))
+        result = await session.execute(
+            text(f"SELECT name, kcal, protein, fat, carb, fiber FROM {table_name}")
+        )
         rows = result.fetchall()
 
     norm_name = normalize(name)
+    
+    # 1. Сначала ищем строгое совпадение по нормализованному названию
+    for row in rows:
+        if normalize(row[0]) == norm_name:
+            return {
+                "matched_name": row[0],
+                "kcal": row[1],
+                "protein": row[2],
+                "fat": row[3],
+                "carb": row[4],
+                "fiber": row[5]
+            }
+    # 2. Если не найдено — делаем fuzzy-match как раньше
     name_list = [normalize(row[0]) for row in rows]
     match = process.extractOne(norm_name, name_list, scorer=fuzz.token_set_ratio)
 
