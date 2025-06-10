@@ -438,7 +438,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
             # Импортируем функции из bot.py
             sys.path.append(os.path.dirname(os.path.abspath(__file__)))
             from bot import get_user_data, get_history, calculate_summary_text
-            print(f"Успешный импорт bot.py для пользователя {user_id}")
+            # Отладочное логирование удалено для оптимизации
         except ImportError as import_error:
             print(f"Ошибка импорта bot.py в get_stats: {import_error}")
             # НЕ возвращаем тестовые данные, а пробуем продолжить
@@ -448,7 +448,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         # Получаем данные пользователя
         try:
             user_data = await get_user_data(user_id)
-            print(f"Получены данные пользователя {user_id}: {user_data}")
+            # Отладочное логирование удалено для оптимизации
         except Exception as e:
             print(f"Ошибка получения данных пользователя {user_id}: {e}")
             # Используем значения по умолчанию
@@ -464,25 +464,25 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         # Получаем историю пользователя
         try:
             history = await get_history(user_id)
-            print(f"Получена история пользователя {user_id}: {len(history)} записей")
+            # Отладочное логирование удалено для оптимизации
         except Exception as e:
             print(f"Ошибка получения истории пользователя {user_id}: {e}")
             history = []
         
         # Фильтруем записи о еде (photo и text типы содержат информацию о еде)
         food_entries = [entry for entry in history if entry.get("type") in ["photo", "text"]]
-        print(f"Найдено записей о еде: {len(food_entries)}")
+        # Отладочное логирование удалено для оптимизации
         
-        # Логируем типы записей для отладки
+        # Подсчет типов записей для анализа (без вывода)
         types_count = {}
         for entry in history:
             entry_type = entry.get("type", "unknown")
             types_count[entry_type] = types_count.get(entry_type, 0) + 1
-        print(f"Типы записей в истории: {types_count}")
+        # Отладочное логирование удалено для оптимизации
         
         # Если нет записей о еде, возвращаем базовые данные
         if not food_entries:
-            print("Нет записей о еде, возвращаем базовые данные")
+            # Отладочное логирование удалено для оптимизации
             stats_data = {
                 "general": {
                     "avg_calories": 0,
@@ -515,7 +515,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         total_carb = 0
         total_fiber = 0
         
-        print(f"Начинаем обработку {len(food_entries)} записей о еде")
+        # Отладочное логирование удалено для оптимизации
         
         for i, entry in enumerate(food_entries):
             try:
@@ -1144,24 +1144,20 @@ async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: 
         # Получаем историю пользователя
         history = await get_history(user_id)
         
-        # Отладочная информация: проверяем что получили из get_history
-        print(f"🔍 API: Получена история, всего записей: {len(history)}")
+        # Отладочное логирование удалено для оптимизации
         food_entries_with_images = [e for e in history if e.get('type') == 'food' and e.get('compressed_image')]
         food_entries_without_images = [e for e in history if e.get('type') == 'food' and not e.get('compressed_image')]
-        print(f"🔍 API: Записей food с изображениями: {len(food_entries_with_images)}")
-        print(f"🔍 API: Записей food без изображений: {len(food_entries_without_images)}")
         
         # Фильтруем записи за указанную дату и только записи о еде
         entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == target_date and e.get("type") == "food"]
         
-        # Отладочная информация
-        print(f"Найдено записей за {target_date}: {len(entries_today)}")
+        # Отладочное логирование удалено для оптимизации
         for i, entry in enumerate(entries_today):
             has_image = bool(entry.get('compressed_image'))
-            print(f"Запись {i+1}: тип={entry.get('type')}, изображение={'есть' if has_image else 'нет'}")
+            # Отладочное логирование удалено для оптимизации
             if has_image:
                 image_length = len(entry.get('compressed_image', ''))
-                print(f"  Длина изображения: {image_length} символов")
+                # Отладочное логирование удалено для оптимизации
         
         # Получаем целевые значения
         target_kcal = int(user_data.get("target_kcal", 2000))
