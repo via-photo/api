@@ -581,8 +581,13 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                 first_date = datetime.fromisoformat(first_date)
             if isinstance(last_date, str):
                 last_date = datetime.fromisoformat(last_date)
-                
-            # Считаем общее количество дней в периоде
+            
+            # Убеждаемся, что последняя дата не раньше сегодня
+            today = datetime.now().date()
+            if last_date.date() < today:
+                last_date = datetime.combine(today, datetime.min.time())
+            
+            # Рассчитываем общий период
             total_period_days = (last_date.date() - first_date.date()).days + 1
             avg_calories = round(total_calories / total_period_days) if total_period_days > 0 else 0
             
@@ -602,16 +607,6 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         daily_data = []
         if food_entries:
             # Создаем полный список дней в периоде
-            sorted_entries = sorted(food_entries, key=lambda x: x.get("timestamp") if isinstance(x.get("timestamp"), datetime) else datetime.fromisoformat(str(x.get("timestamp"))))
-            first_date = sorted_entries[0].get("timestamp")
-            last_date = sorted_entries[-1].get("timestamp")
-            
-            if isinstance(first_date, str):
-                first_date = datetime.fromisoformat(first_date)
-            if isinstance(last_date, str):
-                last_date = datetime.fromisoformat(last_date)
-            
-            # Генерируем все дни в периоде
             current_date = first_date.date()
             end_date = last_date.date()
             
