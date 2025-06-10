@@ -1148,6 +1148,13 @@ async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: 
         # Получаем историю пользователя
         history = await get_history(user_id)
         
+        # Отладочная информация: проверяем что получили из get_history
+        print(f"🔍 API: Получена история, всего записей: {len(history)}")
+        food_entries_with_images = [e for e in history if e.get('type') == 'food' and e.get('compressed_image')]
+        food_entries_without_images = [e for e in history if e.get('type') == 'food' and not e.get('compressed_image')]
+        print(f"🔍 API: Записей food с изображениями: {len(food_entries_with_images)}")
+        print(f"🔍 API: Записей food без изображений: {len(food_entries_without_images)}")
+        
         # Фильтруем записи за указанную дату и только записи о еде
         entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == target_date and e.get("type") == "food"]
         
