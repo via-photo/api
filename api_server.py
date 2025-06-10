@@ -556,16 +556,16 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                     total_fiber += fiber
                     
                     if i < 5:  # Первые 5 записей для контроля качества данных
-                        pass  # Отладочная информация удалена для оптимизации
+                        pass  # Отладочное логирование удалено для оптимизации
                 else:
                     if i < 5:  # Первые 5 записей для контроля качества данных
-                        pass  # Отладочная информация удалена для оптимизации
+                        pass  # Отладочное логирование удалено для оптимизации
                         
             except Exception as e:
                 print(f"Ошибка обработки записи {i+1}: {e}")
                 continue
         
-        # Отладочная информация удалена для оптимизации
+        # Отладочное логирование удалено для оптимизации
         
         days_tracked = len(days)
         
@@ -581,17 +581,12 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                 first_date = datetime.fromisoformat(first_date)
             if isinstance(last_date, str):
                 last_date = datetime.fromisoformat(last_date)
-            
-            # Убеждаемся, что последняя дата не раньше сегодня
-            today = datetime.now().date()
-            if last_date.date() < today:
-                last_date = datetime.combine(today, datetime.min.time())
-            
-            # Рассчитываем общий период
+                
+            # Считаем общее количество дней в периоде
             total_period_days = (last_date.date() - first_date.date()).days + 1
             avg_calories = round(total_calories / total_period_days) if total_period_days > 0 else 0
             
-            # Отладочная информация удалена для оптимизации
+            # Отладочное логирование удалено для оптимизации
         else:
             avg_calories = 0
         
@@ -781,7 +776,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
             "daily_data": daily_data  # Добавляем реальные данные по дням
         }
         
-        # Отладочная информация удалена для оптимизации
+        # Отладочное логирование удалено для оптимизации
         
         return {"status": "success", "data": stats_data}
     except Exception as e:
