@@ -706,7 +706,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                     short_desc = ", ".join([re.sub(r'^[•\-]\s*', '', line).split("–")[0].strip() for line in food_lines]) or "Без описания"
                     
                     today_meals.append({
-                        "time": entry['timestamp'].strftime("%H:%M"),
+                        "time": entry['timestamp'].astimezone(user_tz).strftime("%H:%M"),
                         "description": short_desc,
                         "calories": kcal
                     })
@@ -1264,7 +1264,7 @@ async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: 
             
             meals.append({
                 "id": i,
-                "time": entry['timestamp'].strftime("%H:%M"),
+                "time": entry['timestamp'].astimezone(user_tz).strftime("%H:%M"),
                 "description": short_desc,
                 "calories": kcal,
                 "protein": prot,
