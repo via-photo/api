@@ -1148,8 +1148,8 @@ async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: 
         # Получаем историю пользователя
         history = await get_history(user_id)
         
-        # Фильтруем записи за указанную дату
-        entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == target_date]
+        # Фильтруем записи за указанную дату и только записи о еде
+        entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == target_date and e.get("type") == "food"]
         
         # Получаем целевые значения
         target_kcal = int(user_data.get("target_kcal", 2000))
