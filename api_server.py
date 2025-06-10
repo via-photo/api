@@ -28,31 +28,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# Кэширование и оптимизация
-class CacheManager:
-    """Менеджер кэширования для оптимизации API запросов"""
-    
+# Простая система кэширования для оптимизации API запросов
+class APICache:
     def __init__(self):
         self.cache = {}
         self.cache_ttl = {}
         self.default_ttl = 300  # 5 минут по умолчанию
-        self.ttl_settings = {
-            'profile': 1800,      # 30 минут - профиль меняется редко
-            'diary': 300,         # 5 минут - дневник может обновляться
-            'stats': 600,         # 10 минут - статистика пересчитывается реже
-            'recipes': 3600,      # 1 час - рецепты статичны
-            'day_summary': 180,   # 3 минуты - итоги дня могут обновляться
-            'history': 300        # 5 минут - история может пополняться
-        }
     
     def get_cache_key(self, prefix: str, user_id: str, **kwargs) -> str:
         """Генерирует уникальный ключ кэша"""
-        key_data = f"{prefix}:{user_id}:{':'.join(f'{k}={v}' for k, v in sorted(kwargs.items()))}"
+        key_parts = [prefix, user_id]
+        for k, v in sorted(kwargs.items()):
+            key_parts.append(f"{k}={v}")
+        key_data = ":".join(key_parts)
         return hashlib.md5(key_data.encode()).hexdigest()
     
     def get(self, key: str):
-        """Получает данные из кэша"""
+        """Получает данные из кэша если они не устарели"""
         if key in self.cache:
             if time.time() < self.cache_ttl.get(key, 0):
                 return self.cache[key]
@@ -62,50 +54,48 @@ class CacheManager:
                 self.cache_ttl.pop(key, None)
         return None
     
-    def set(self, key: str, value, ttl: int = None, cache_type: str = 'default'):
-        """Сохраняет данные в кэш с оптимизированным TTL"""
-        if ttl is None:
-            ttl = self.ttl_settings.get(cache_type, self.default_ttl)
+    def set(self, key: str, value, ttl: int = None):
+        """Сохраняет данные в кэш"""
         self.cache[key] = value
-        self.cache_ttl[key] = time.time() + ttl
+        self.cache_ttl[key] = time.time() + (ttl or self.default_ttl)
     
-    def invalidate_user_cache(self, user_id: str, cache_types: List[str] = None):
-        """Очищает кэш пользователя для определенных типов данных"""
-        if cache_types is None:
-            # Очищаем весь кэш пользователя
-            keys_to_remove = [key for key in self.cache.keys() if user_id in key]
-        else:
-            # Очищаем только указанные типы
-            keys_to_remove = []
-            for cache_type in cache_types:
-                pattern = f"{cache_type}:{user_id}"
-                keys_to_remove.extend([key for key in self.cache.keys() if pattern in key])
-        
+    def invalidate_user_cache(self, user_id: str):
+        """Очищает весь кэш пользователя"""
+        keys_to_remove = [key for key in self.cache.keys() if user_id in str(key)]
         for key in keys_to_remove:
             self.cache.pop(key, None)
             self.cache_ttl.pop(key, None)
-    
-    def cleanup_expired(self):
-        """Очищает устаревшие записи из кэша"""
-        current_time = time.time()
-        expired_keys = [key for key, ttl in self.cache_ttl.items() if current_time >= ttl]
-        for key in expired_keys:
-            self.cache.pop(key, None)
-            self.cache_ttl.pop(key, None)
-    
-    def get_cache_stats(self):
-        """Возвращает статистику кэша"""
-        current_time = time.time()
-        active_keys = sum(1 for ttl in self.cache_ttl.values() if current_time < ttl)
-        return {
-            "total_keys": len(self.cache),
-            "active_keys": active_keys,
-            "expired_keys": len(self.cache) - active_keys,
-            "memory_usage": len(str(self.cache))
-        }
 
-# Глобальный менеджер кэша
-cache_manager = CacheManager()
+# Глобальный экземпляр кэша
+api_cache = APICache()
+
+# Кэшированные функции для парсинга данных
+@lru_cache(maxsize=1000)
+def parse_nutrition_cached(response_text: str) -> tuple:
+    """Кэшированное извлечение БЖУ из ответа"""
+    match = re.search(
+        r'Итого:\s*[~≈]?\s*(\d+\.?\d*)\s*ккал.*?'
+        r'Белки[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
+        r'Жиры[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
+        r'Углеводы[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
+        r'Клетчатка[:\-]?\s*([~≈]?\s*\d+\.?\d*)\s*г',
+        response_text, flags=re.IGNORECASE | re.DOTALL
+    )
+    
+    if match:
+        kcal, prot, fat, carb = map(lambda x: round(float(x)), match.groups()[:4])
+        fiber = round(float(match.groups()[4]), 1)
+        return kcal, prot, fat, carb, fiber
+    
+    return 0, 0, 0, 0, 0.0
+
+@lru_cache(maxsize=500)
+def parse_products_cached(response_text: str) -> str:
+    """Кэшированное извлечение списка продуктов из ответа"""
+    lines = response_text.splitlines()
+    food_lines = [line for line in lines if line.strip().startswith(("•", "-"))]
+    return ", ".join([re.sub(r'^[•\-]\s*', '', line).split("–")[0].strip() for line in food_lines]) or "Без описания"
+
 
 # Модели данных
 class MealEntry(BaseModel):
@@ -195,27 +185,11 @@ async def get_day_summary(user_id: str, date_str: Optional[str] = None, api_key:
     """
     try:
         # Проверяем кэш
-        cache_key = cache_manager.get_cache_key("day_summary", user_id, date=date_str or "today")
-        cached_result = cache_manager.get(cache_key)
+        cache_key = api_cache.get_cache_key("day_summary", user_id, date=date_str or "today")
+        cached_result = api_cache.get(cache_key)
         if cached_result:
             return cached_result
         
-        # Если в кэше нет, вычисляем
-        result = await get_day_summary_uncached(user_id, date_str)
-        
-        # Сохраняем в кэш
-        cache_manager.set(cache_key, result, cache_type='day_summary')
-        
-        return result
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-async def get_day_summary_uncached(user_id: str, date_str: Optional[str] = None):
-    """
-    Получение итогов дня для пользователя без кэширования
-    """
-    try:
         # Добавляем обработку ошибок импорта
         try:
             # Импортируем функции из bot.py
@@ -225,7 +199,7 @@ async def get_day_summary_uncached(user_id: str, date_str: Optional[str] = None)
             print(f"Ошибка импорта bot.py в get_day_summary: {import_error}")
             # Возвращаем тестовые данные если bot.py недоступен
             target_date = date_str or datetime.now().strftime("%Y-%m-%d")
-            return {
+            result = {
                 "status": "success", 
                 "data": {
                     "date": target_date,
@@ -254,6 +228,9 @@ async def get_day_summary_uncached(user_id: str, date_str: Optional[str] = None)
                     "message": "Тестовые данные (bot.py недоступен)"
                 }
             }
+            # Кэшируем тестовые данные на короткое время
+            api_cache.set(cache_key, result, ttl=60)
+            return result
         
         # Получаем данные пользователя
         user_data = await get_user_data(user_id)
@@ -266,75 +243,14 @@ async def get_day_summary_uncached(user_id: str, date_str: Optional[str] = None)
         else:
             target_date = datetime.now(user_tz).date()
         
-# Оптимизированная функция получения истории с ограничениями
-async def get_history_limited(user_id: str, days_limit: int = 30, limit: int = None, offset: int = 0):
-    """
-    Получение ограниченной истории пользователя для оптимизации
-    """
-    try:
-        from bot import get_history
-        
-        # Получаем полную историю (пока что, в будущем можно оптимизировать на уровне БД)
-        full_history = await get_history(user_id)
-        
-        # Фильтруем по дате (последние N дней)
-        cutoff_date = datetime.now() - timedelta(days=days_limit)
-        filtered_history = [
-            entry for entry in full_history 
-            if entry.get("timestamp") and entry["timestamp"] >= cutoff_date
-        ]
-        
-        # Применяем пагинацию если указана
-        if limit is not None:
-            end_index = offset + limit
-            filtered_history = filtered_history[offset:end_index]
-        
-        return filtered_history
-        
-    except Exception as e:
-        print(f"Ошибка в get_history_limited: {e}")
-        return []
-
-# Функция для предварительного вычисления БЖУ
-@lru_cache(maxsize=1000)
-def parse_nutrition_from_response(response_text: str) -> tuple:
-    """
-    Кэшированное извлечение БЖУ из ответа
-    """
-    match = re.search(
-        r'Итого:\s*[~≈]?\s*(\d+\.?\d*)\s*ккал.*?'
-        r'Белки[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
-        r'Жиры[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
-        r'Углеводы[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
-        r'Клетчатка[:\-]?\s*([~≈]?\s*\d+\.?\d*)\s*г',
-        response_text, flags=re.IGNORECASE | re.DOTALL
-    )
-    
-    if match:
-        kcal, prot, fat, carb = map(lambda x: round(float(x)), match.groups()[:4])
-        fiber = round(float(match.groups()[4]), 1)
-        return kcal, prot, fat, carb, fiber
-    
-    return 0, 0, 0, 0, 0.0
-
-# Функция для предварительного извлечения продуктов
-@lru_cache(maxsize=500)
-def parse_products_from_response(response_text: str) -> str:
-    """
-    Кэшированное извлечение списка продуктов из ответа
-    """
-    lines = response_text.splitlines()
-    food_lines = [line for line in lines if line.strip().startswith(("•", "-"))]
-    return ", ".join([re.sub(r'^[•\-]\s*', '', line).split("–")[0].strip() for line in food_lines]) or "Без описания"
-        
-        # Получаем историю пользователя с ограничением (оптимизация)
-        history = await get_history_limited(user_id, days_limit=30)  # Ограничиваем последними 30 днями
+        # Получаем историю пользователя
+        history = await get_history(user_id)
         
         # Фильтруем записи за указанную дату
         entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == target_date]
         
         if not entries_today:
-            return {
+            result = {
                 "status": "success", 
                 "data": {
                     "date": target_date.strftime("%Y-%m-%d"),
@@ -353,14 +269,17 @@ def parse_products_from_response(response_text: str) -> str:
                     "message": "В этот день не было добавлено ни одного блюда."
                 }
             }
+            # Кэшируем пустые данные на короткое время
+            api_cache.set(cache_key, result, ttl=180)
+            return result
         
         # Подсчитываем общие значения
         total_kcal = total_prot = total_fat = total_carb = total_fiber = 0.0
         meals = []
         
         for i, entry in enumerate(entries_today, start=1):
-            # Используем оптимизированную функцию парсинга БЖУ
-            kcal, prot, fat, carb, fiber = parse_nutrition_from_response(entry['response'])
+            # Используем кэшированную функцию парсинга БЖУ
+            kcal, prot, fat, carb, fiber = parse_nutrition_cached(entry['response'])
             
             total_kcal += kcal
             total_prot += prot
@@ -368,12 +287,12 @@ def parse_products_from_response(response_text: str) -> str:
             total_carb += carb
             total_fiber += fiber
             
-            # Используем оптимизированную функцию парсинга продуктов
-            short_desc = parse_products_from_response(entry['response'])
+            # Используем кэшированную функцию парсинга продуктов
+            short_desc = parse_products_cached(entry['response'])
             
             meals.append({
                 "id": i,
-                "time": entry['timestamp'].astimezone(user_tz).strftime("%H:%M"),
+                "time": entry['timestamp'].strftime("%H:%M"),
                 "description": short_desc,
                 "calories": kcal,
                 "protein": prot,
@@ -442,7 +361,10 @@ def parse_products_from_response(response_text: str) -> str:
             }
         }
         
-        return {"status": "success", "data": summary_data}
+        result = {"status": "success", "data": summary_data}
+        # Кэшируем результат на 3 минуты
+        api_cache.set(cache_key, result, ttl=180)
+        return result
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -455,27 +377,11 @@ async def get_diary(user_id: str, api_key: str = Depends(verify_api_key)):
     """
     try:
         # Проверяем кэш
-        cache_key = cache_manager.get_cache_key("diary", user_id)
-        cached_result = cache_manager.get(cache_key)
+        cache_key = api_cache.get_cache_key("diary", user_id)
+        cached_result = api_cache.get(cache_key)
         if cached_result:
             return cached_result
         
-        # Если в кэше нет, вычисляем
-        result = await get_diary_uncached(user_id)
-        
-        # Сохраняем в кэш
-        cache_manager.set(cache_key, result, cache_type='diary')
-        
-        return result
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-async def get_diary_uncached(user_id: str):
-    """
-    Получение данных дневника питания пользователя без кэширования
-    """
-    try:
         # Добавляем обработку ошибок импорта
         try:
             # Импортируем функции из bot.py
@@ -484,7 +390,7 @@ async def get_diary_uncached(user_id: str):
         except ImportError as import_error:
             print(f"Ошибка импорта bot.py в get_diary: {import_error}")
             # Возвращаем тестовые данные если bot.py недоступен
-            return {
+            result = {
                 "status": "success", 
                 "data": {
                     "days": [
@@ -510,12 +416,15 @@ async def get_diary_uncached(user_id: str):
                     }
                 }
             }
+            # Кэшируем тестовые данные
+            api_cache.set(cache_key, result, ttl=60)
+            return result
         
         # Получаем данные пользователя
         user_data = await get_user_data(user_id)
         
-        # Получаем ограниченную историю пользователя (оптимизация)
-        history = await get_history_limited(user_id, days_limit=14)  # Последние 2 недели для дневника
+        # Получаем историю пользователя
+        history = await get_history(user_id)
         
         # Преобразуем данные в нужный формат
         diary_data = {
@@ -594,7 +503,10 @@ async def get_diary_uncached(user_id: str):
         sorted_days = sorted(days_dict.values(), key=lambda x: datetime.strptime(x["date"], "%d.%m.%Y"), reverse=True)
         diary_data["days"] = sorted_days
         
-        return {"status": "success", "data": diary_data}
+        result = {"status": "success", "data": diary_data}
+        # Кэшируем результат на 5 минут
+        api_cache.set(cache_key, result, ttl=300)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -605,28 +517,11 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
     """
     try:
         # Проверяем кэш
-        cache_key = cache_manager.get_cache_key("stats", user_id)
-        cached_result = cache_manager.get(cache_key)
+        cache_key = api_cache.get_cache_key("stats", user_id)
+        cached_result = api_cache.get(cache_key)
         if cached_result:
             return cached_result
         
-        # Если в кэше нет, вычисляем
-        result = await get_stats_uncached(user_id)
-        
-        # Сохраняем в кэш на 10 минут
-        cache_manager.set(cache_key, result, ttl=600)
-        
-        return result
-        
-    except Exception as e:
-        print(f"КРИТИЧЕСКАЯ ОШИБКА в get_stats для пользователя {user_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-async def get_stats_uncached(user_id: str):
-    """
-    Получение статистики пользователя без кэширования
-    """
-    try:
         # Добавляем обработку ошибок импорта
         try:
             # Импортируем функции из bot.py
@@ -893,10 +788,8 @@ async def get_stats_uncached(user_id: str):
                     today_carb += carb
                     today_fiber += fiber
                     
-                    # Извлекаем продукты из ответа
-                    lines = entry['response'].splitlines()
-                    food_lines = [line for line in lines if line.strip().startswith(("•", "-"))]
-                    short_desc = ", ".join([re.sub(r'^[•\-]\s*', '', line).split("–")[0].strip() for line in food_lines]) or "Без описания"
+                    # Используем кэшированную функцию парсинга продуктов
+                    short_desc = parse_products_cached(entry['response'])
                     
                     today_meals.append({
                         "time": entry['timestamp'].astimezone(user_tz).strftime("%H:%M"),
@@ -972,7 +865,10 @@ async def get_stats_uncached(user_id: str):
         
         # Отладочное логирование удалено для оптимизации
         
-        return {"status": "success", "data": stats_data}
+        result = {"status": "success", "data": stats_data}
+        # Кэшируем результат на 10 минут (статистика обновляется реже)
+        api_cache.set(cache_key, result, ttl=600)
+        return result
     except Exception as e:
         print(f"КРИТИЧЕСКАЯ ОШИБКА в get_stats для пользователя {user_id}: {e}")
         print(f"Тип ошибки: {type(e)}")
@@ -987,33 +883,19 @@ async def get_recipes(user_id: str, api_key: str = Depends(verify_api_key)):
     """
     try:
         # Проверяем кэш
-        cache_key = cache_manager.get_cache_key("recipes", user_id)
-        cached_result = cache_manager.get(cache_key)
+        cache_key = api_cache.get_cache_key("recipes", user_id)
+        cached_result = api_cache.get(cache_key)
         if cached_result:
             return cached_result
         
-        # Если в кэше нет, вычисляем
-        result = await get_recipes_uncached(user_id)
-        
-        # Сохраняем в кэш на 1 час (рецепты статичны)
-        cache_manager.set(cache_key, result, cache_type='recipes')
-        
-        return result
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-async def get_recipes_uncached(user_id: str):
-    """
-    Получение рецептов для пользователя без кэширования
-    """
-    try:
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         try:
             from bot import get_user_data
         except ImportError:
-            return {"status": "success", "data": {"test": "mode"}}
+            result = {"status": "success", "data": {"test": "mode"}}
+            api_cache.set(cache_key, result, ttl=60)
+            return result
         
         # Получаем данные пользователя
         user_data = await get_user_data(user_id)
@@ -1092,7 +974,10 @@ async def get_recipes_uncached(user_id: str):
         except Exception as e:
             print(f"Ошибка при чтении файла рецептов: {e}")
         
-        return {"status": "success", "data": recipes_data}
+        result = {"status": "success", "data": recipes_data}
+        # Кэшируем рецепты на 1 час (они статичны)
+        api_cache.set(cache_key, result, ttl=3600)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1119,46 +1004,35 @@ async def add_meal(meal_data: MealData, api_key: str = Depends(verify_api_key)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Эндп# Эндпоинт для получения профиля пользователя
+# Эндпоинт для получения профиля пользователя
 @app.get("/api/profile/{user_id}", response_model=Dict[str, Any])
 async def get_user_profile(user_id: str, api_key: str = Depends(verify_api_key)):
     """
-    Получение профиля пользователя с кэшированием
+    Получение данных профиля пользователя с кэшированием
     """
     try:
         # Проверяем кэш
-        cache_key = cache_manager.get_cache_key("profile", user_id)
-        cached_result = cache_manager.get(cache_key)
+        cache_key = api_cache.get_cache_key("profile", user_id)
+        cached_result = api_cache.get(cache_key)
         if cached_result:
             return cached_result
         
-        # Если в кэше нет, вычисляем
-        result = await get_user_profile_uncached(user_id)
-        
-        # Сохраняем в кэш на 30 минут (профиль меняется редко)
-        cache_manager.set(cache_key, result, cache_type='profile')
-        
-        return result
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-async def get_user_profile_uncached(user_id: str):
-    """
-    Получение профиля пользователя без кэширования
-    """"
-    try:
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         try:
             from bot import get_user_data
         except ImportError:
-            return {"status": "success", "data": {"test": "mode"}}
+            result = {"status": "success", "data": {"test": "mode"}}
+            api_cache.set(cache_key, result, ttl=60)
+            return result
         
         # Получаем данные пользователя
         user_data = await get_user_data(user_id)
         
-        return {"status": "success", "data": user_data}
+        result = {"status": "success", "data": user_data}
+        # Кэшируем профиль на 30 минут (меняется редко)
+        api_cache.set(cache_key, result, ttl=1800)
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1166,7 +1040,7 @@ async def get_user_profile_uncached(user_id: str):
 @app.put("/api/profile/{user_id}", response_model=Dict[str, Any])
 async def update_user_profile(user_id: str, profile_data: ProfileUpdateData, api_key: str = Depends(verify_api_key)):
     """
-    Обновление профиля пользователя с инвалидацией кэша
+    Обновление данных профиля пользователя с инвалидацией кэша
     """
     try:
         # Импортируем функции из bot.py
@@ -1186,8 +1060,8 @@ async def update_user_profile(user_id: str, profile_data: ProfileUpdateData, api
         # Сохраняем обновленные данные
         await update_user_data(user_id, current_data)
         
-        # Инвалидируем связанные кэши
-        cache_manager.invalidate_user_cache(user_id, ['profile', 'stats', 'day_summary'])
+        # Очищаем кэш пользователя после обновления
+        api_cache.invalidate_user_cache(user_id)
         
         return {"status": "success", "message": "Профиль обновлен", "data": current_data}
     except Exception as e:
@@ -1288,28 +1162,11 @@ async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: 
     """
     try:
         # Проверяем кэш
-        cache_key = cache_manager.get_cache_key("diary_data", user_id, date=date_str or "today")
-        cached_result = cache_manager.get(cache_key)
+        cache_key = api_cache.get_cache_key("diary_data", user_id, date=date_str or "today")
+        cached_result = api_cache.get(cache_key)
         if cached_result:
             return cached_result
         
-        # Если в кэше нет, вычисляем
-        result = await get_diary_data_uncached(user_id, date_str)
-        
-        # Сохраняем в кэш
-        cache_manager.set(cache_key, result, cache_type='diary')
-        
-        return result
-        
-    except Exception as e:
-        print(f"Ошибка в get_diary_data: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-async def get_diary_data_uncached(user_id: str, date_str: Optional[str] = None):
-    """
-    Получение детальных данных дневника питания для пользователя за конкретную дату без кэширования
-    """
-    try:
         # Добавляем обработку ошибок импорта
         try:
             # Импортируем функции из bot.py
@@ -1319,7 +1176,7 @@ async def get_diary_data_uncached(user_id: str, date_str: Optional[str] = None):
             print(f"Ошибка импорта bot.py в get_diary_data: {import_error}")
             # Возвращаем тестовые данные если bot.py недоступен
             target_date = date_str or datetime.now().strftime("%Y-%m-%d")
-            return {
+            result = {
                 "status": "success", 
                 "data": {
                     "date": target_date,
@@ -1393,6 +1250,9 @@ async def get_diary_data_uncached(user_id: str, date_str: Optional[str] = None):
                     "message": "🔧 Режим отладки - используются тестовые данные"
                 }
             }
+            # Кэшируем тестовые данные
+            api_cache.set(cache_key, result, ttl=60)
+            return result
         
         # Получаем данные пользователя
         user_data = await get_user_data(user_id)
@@ -1405,8 +1265,8 @@ async def get_diary_data_uncached(user_id: str, date_str: Optional[str] = None):
         else:
             target_date = datetime.now(user_tz).date()
         
-        # Получаем ограниченную историю пользователя (оптимизация)
-        history = await get_history_limited(user_id, days_limit=7)  # Последние 7 дней для детального дневника
+        # Получаем историю пользователя
+        history = await get_history(user_id)
         
         # Отладочное логирование удалено для оптимизации
         food_entries_with_images = [e for e in history if e.get('type') == 'food' and e.get('compressed_image')]
@@ -1464,8 +1324,8 @@ async def get_diary_data_uncached(user_id: str, date_str: Optional[str] = None):
         meals = []
         
         for i, entry in enumerate(entries_today, start=1):
-            # Используем оптимизированную функцию парсинга БЖУ
-            kcal, prot, fat, carb, fiber = parse_nutrition_from_response(entry['response'])
+            # Используем кэшированную функцию парсинга БЖУ
+            kcal, prot, fat, carb, fiber = parse_nutrition_cached(entry['response'])
             
             total_kcal += kcal
             total_prot += prot
@@ -1503,8 +1363,7 @@ async def get_diary_data_uncached(user_id: str, date_str: Optional[str] = None):
                         "calories": product_calories
                     })
             
-            # Используем оптимизированную функцию парсинга продуктов для краткого описания
-            short_desc = parse_products_from_response(entry['response'])
+            short_desc = ", ".join([re.sub(r'^[•\-]\s*', '', line).split("–")[0].strip() for line in food_lines]) or "Без описания"
             
             meals.append({
                 "id": i,
@@ -1552,7 +1411,10 @@ async def get_diary_data_uncached(user_id: str, date_str: Optional[str] = None):
             }
         }
         
-        return {"status": "success", "data": diary_data}
+        result = {"status": "success", "data": diary_data}
+        # Кэшируем результат на 3 минуты
+        api_cache.set(cache_key, result, ttl=180)
+        return result
         
     except Exception as e:
         print(f"Ошибка в get_diary_data: {e}")
@@ -1562,65 +1424,22 @@ if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
-# Эндпоинт для статистики кэша (для мониторинга)
+# Эндпоинт для управления кэшем (для отладки)
 @app.get("/api/cache/stats")
 async def get_cache_stats():
-    """
-    Получение статистики кэша для мониторинга производительности
-    """
-    try:
-        # Очищаем устаревшие записи перед получением статистики
-        cache_manager.cleanup_expired()
-        
-        stats = cache_manager.get_cache_stats()
-        return {
-            "status": "success",
-            "data": stats,
-            "timestamp": datetime.now().isoformat()
+    """Получение статистики кэша"""
+    return {
+        "status": "success",
+        "data": {
+            "cache_size": len(api_cache.cache),
+            "cache_keys": list(api_cache.cache.keys())[:10],  # Первые 10 ключей
+            "ttl_info": {k: v - time.time() for k, v in list(api_cache.cache_ttl.items())[:5]}
         }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    }
 
-# Эндпоинт для очистки кэша (для администрирования)
 @app.delete("/api/cache/clear/{user_id}")
-async def clear_user_cache(user_id: str, cache_types: Optional[str] = None):
-    """
-    Очистка кэша пользователя (для отладки и администрирования)
-    """
-    try:
-        if cache_types:
-            types_list = cache_types.split(',')
-            cache_manager.invalidate_user_cache(user_id, types_list)
-            message = f"Очищен кэш типов {types_list} для пользователя {user_id}"
-        else:
-            cache_manager.invalidate_user_cache(user_id)
-            message = f"Очищен весь кэш для пользователя {user_id}"
-        
-        return {
-            "status": "success",
-            "message": message,
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-# Добавляем периодическую очистку кэша
-import asyncio
-import threading
-
-def periodic_cache_cleanup():
-    """
-    Периодическая очистка устаревших записей кэша
-    """
-    while True:
-        try:
-            cache_manager.cleanup_expired()
-            time.sleep(300)  # Очистка каждые 5 минут
-        except Exception as e:
-            print(f"Ошибка при очистке кэша: {e}")
-            time.sleep(60)  # При ошибке ждем минуту
-
-# Запускаем фоновую очистку кэша
-cleanup_thread = threading.Thread(target=periodic_cache_cleanup, daemon=True)
-cleanup_thread.start()
+async def clear_user_cache(user_id: str):
+    """Очистка кэша пользователя"""
+    api_cache.invalidate_user_cache(user_id)
+    return {"status": "success", "message": f"Кэш пользователя {user_id} очищен"}
 
