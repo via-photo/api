@@ -1151,6 +1151,15 @@ async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: 
         # Фильтруем записи за указанную дату и только записи о еде
         entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == target_date and e.get("type") == "food"]
         
+        # Отладочная информация
+        print(f"Найдено записей за {target_date}: {len(entries_today)}")
+        for i, entry in enumerate(entries_today):
+            has_image = bool(entry.get('compressed_image'))
+            print(f"Запись {i+1}: тип={entry.get('type')}, изображение={'есть' if has_image else 'нет'}")
+            if has_image:
+                image_length = len(entry.get('compressed_image', ''))
+                print(f"  Длина изображения: {image_length} символов")
+        
         # Получаем целевые значения
         target_kcal = int(user_data.get("target_kcal", 2000))
         target_protein = int(user_data.get("target_protein", 100))
