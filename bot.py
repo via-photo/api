@@ -400,13 +400,6 @@ async def update_user_data(user_id: str, data: dict):
 async def add_history_entry(user_id: str, entry: dict):
     async with async_session() as session:
         async with session.begin():
-            # Постоянная отладочная информация
-            if entry.get('type') == 'food':
-                has_image = bool(entry.get('compressed_image'))
-                print(f"💾 СОХРАНЕНИЕ: Пользователь {user_id}, тип=food, изображение={'ЕСТЬ' if has_image else 'НЕТ'}")
-                if has_image:
-                    print(f"💾 Размер изображения: {len(entry.get('compressed_image', ''))} символов")
-            
             session.add(UserHistory(user_id=user_id, **entry))
 
 async def get_history(user_id: str) -> list:
@@ -415,13 +408,6 @@ async def get_history(user_id: str) -> list:
         entries = result.scalars().all()
         history_list = []
         for e in entries:
-            # Отладочная информация для каждой записи
-            has_image = bool(e.compressed_image)
-            if e.type == "food":
-                print(f"🔍 get_history: запись {e.id}, тип={e.type}, изображение={'есть' if has_image else 'НЕТ'}")
-                if has_image:
-                    print(f"🔍 Длина изображения в БД: {len(e.compressed_image)} символов")
-            
             history_list.append({
                 "prompt": e.prompt,
                 "response": e.response,
@@ -1287,9 +1273,6 @@ async def calculate_and_send_targets(chat_id, user_id: str):
 async def handle_photo(message: types.Message):
     user_id = str(message.from_user.id)
     
-    # ОТЛАДКА: Самое начало обработки фото
-    print(f"🔍 НАЧАЛО: Получено фото от пользователя {user_id}")
-    
     now = datetime.now(timezone.utc)
     data = await get_user_data(user_id)
     usage_count = data.get("usage_count", 0)
@@ -1524,44 +1507,34 @@ async def handle_photo(message: types.Message):
     # Сжимаем изображение для сохранения в базу данных
     compressed_image = compress_image(image_bytes, max_size=(600, 600), quality=70)
     
-    # ОТЛАДКА: Проверяем сжатие изображения
-    print(f"🔍 ОТЛАДКА: Обработка фото для пользователя {user_id}")
-    print(f"🔍 Размер исходного изображения: {len(image_bytes)} байт")
-    print(f"🔍 Сжатое изображение: {'создано' if compressed_image else 'НЕ СОЗДАНО'}")
-    if compressed_image:
-        print(f"🔍 Размер сжатого изображения: {len(compressed_image)} символов")
-    
-    entry = {
-        "prompt": user_caption or "",
-        "response": answer,
-        "timestamp": now,
-        "type": "food",  # Исправлено: было "photo", должно быть "food"
-        "data": parsed_ingredients,
-        "compressed_image": compressed_image  # Добавляем сжатое изображение
-    }
-    
-    print(f"🔍 ОТЛАДКА: Готовим запись для сохранения:")
-    print(f"🔍 Тип записи: {entry['type']}")
-    print(f"🔍 Изображение в записи: {'есть' if entry.get('compressed_image') else 'НЕТ'}")
-    
-    await add_history_entry(user_id, entry)
+    try:
+        entry = {
+            "prompt": user_caption or "",
+            "response": answer,
+            "timestamp": now,
+            "type": "food",  # Исправлено: было "photo", должно быть "food"
+            "data": parsed_ingredients,
+            "compressed_image": compressed_image  # Добавляем сжатое изображение
+        }
+        
+        await add_history_entry(user_id, entry)
+        
+    except Exception as e:
+        print(f"❌ ОШИБКА при сохранении записи: {e}")
+        import traceback
+        print(f"❌ Трассировка: {traceback.format_exc()}")
 
     buttons = InlineKeyboardMarkup().add(
         InlineKeyboardButton("💬 Исправить", callback_data=f"start_fix:{entry['timestamp'].isoformat()}"),
         InlineKeyboardButton("❌ Удалить", callback_data=f"del_id:{entry['timestamp'].isoformat()}")
     )
+
     await message.reply(answer, reply_markup=buttons)
-
-
-
 
 @dp.callback_query_handler(lambda c: c.data.startswith("cancel_fix:"))
 async def cancel_fix_callback(callback_query: CallbackQuery):
     user_id = str(callback_query.from_user.id)
     data = await get_user_data(user_id)
-
-    data["fix_mode"] = None
-    await update_user_data(user_id, data)
 
     timestamp = callback_query.data.split("cancel_fix:")[1]
     original_text = callback_query.message.text or ""
