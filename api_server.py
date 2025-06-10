@@ -555,17 +555,17 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                     total_carb += carb
                     total_fiber += fiber
                     
-                    if i < 5:  # Логируем первые 5 записей для отладки
-                        print(f"Запись {i+1}: {kcal} ккал, {prot}г белков, {fat}г жиров, {carb}г углеводов, {fiber}г клетчатки")
+                    if i < 5:  # Первые 5 записей для контроля качества данных
+                        pass  # Отладочная информация удалена для оптимизации
                 else:
-                    if i < 5:  # Логируем первые 5 записей без БЖУ
-                        print(f"Запись {i+1}: БЖУ не найдены в ответе: {response[:100]}...")
+                    if i < 5:  # Первые 5 записей для контроля качества данных
+                        pass  # Отладочная информация удалена для оптимизации
                         
             except Exception as e:
                 print(f"Ошибка обработки записи {i+1}: {e}")
                 continue
         
-        print(f"Обработано записей. Всего калорий: {total_calories}, дней с записями: {len(days)}")
+        # Отладочная информация удалена для оптимизации
         
         days_tracked = len(days)
         
@@ -591,8 +591,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
             total_period_days = (last_date.date() - first_date.date()).days + 1
             avg_calories = round(total_calories / total_period_days) if total_period_days > 0 else 0
             
-            print(f"Период отслеживания: {first_date.date()} - {last_date.date()} ({total_period_days} дней)")
-            print(f"Средние калории: {total_calories} / {total_period_days} = {avg_calories}")
+            # Отладочная информация удалена для оптимизации
         else:
             avg_calories = 0
         
@@ -607,6 +606,16 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         daily_data = []
         if food_entries:
             # Создаем полный список дней в периоде
+            sorted_entries = sorted(food_entries, key=lambda x: x.get("timestamp") if isinstance(x.get("timestamp"), datetime) else datetime.fromisoformat(str(x.get("timestamp"))))
+            first_date = sorted_entries[0].get("timestamp")
+            last_date = sorted_entries[-1].get("timestamp")
+            
+            if isinstance(first_date, str):
+                first_date = datetime.fromisoformat(first_date)
+            if isinstance(last_date, str):
+                last_date = datetime.fromisoformat(last_date)
+            
+            # Генерируем все дни в периоде
             current_date = first_date.date()
             end_date = last_date.date()
             
@@ -772,10 +781,7 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
             "daily_data": daily_data  # Добавляем реальные данные по дням
         }
         
-        print(f"Итоговые данные статистики: avg_calories={avg_calories}, days_tracked={days_tracked}, adherence_percent={adherence_percent}")
-        print(f"Распределение БЖУ: protein={protein_percent}%, fat={fat_percent}%, carb={carb_percent}%")
-        print(f"Топ продуктов: {len(top_products)} шт")
-        print(f"Данных по дням: {len(daily_data)} записей")
+        # Отладочная информация удалена для оптимизации
         
         return {"status": "success", "data": stats_data}
     except Exception as e:
