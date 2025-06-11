@@ -1424,3 +1424,65 @@ async def clear_user_cache(user_id: str):
     api_cache.invalidate_user_cache(user_id)
     return {"status": "success", "message": f"Кэш пользователя {user_id} очищен"}
 
+
+# Эндпоинт для удаления блюда
+@app.delete("/api/meal/{user_id}/{timestamp}")
+async def delete_meal(user_id: str, timestamp: str, api_key: str = Depends(verify_api_key)):
+    """
+    Удаление блюда по timestamp
+    """
+    try:
+        # Добавляем обработку ошибок импорта
+        try:
+            # Импортируем функции из bot.py
+            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+            from bot import get_history, async_session, UserHistory
+            from sqlalchemy import delete
+        except ImportError as import_error:
+            print(f"Ошибка импорта bot.py в delete_meal: {import_error}")
+            raise HTTPException(status_code=500, detail="Ошибка сервера: не удается получить доступ к данным")
+        
+        # Получаем историю пользователя
+        history = await get_history(user_id)
+        
+        # Ищем запись для удаления
+        entry_to_remove = None
+        for entry in history:
+            if entry["timestamp"].isoformat() == timestamp:
+                entry_to_remove = entry
+                break
+        
+        if not entry_to_remove:
+            raise HTTPException(status_code=404, detail="Блюдо не найдено")
+        
+        # Удаляем из базы данных
+        try:
+            dt = entry_to_remove["timestamp"]
+            async with async_session() as session:
+                async with session.begin():
+                    await session.execute(delete(UserHistory).where(
+                        UserHistory.user_id == user_id, 
+                        UserHistory.timestamp == dt
+                    ))
+        except Exception as e:
+            print(f"Ошибка удаления записи из БД: {e}")
+            raise HTTPException(status_code=500, detail="Ошибка при удалении из базы данных")
+        
+        # Очищаем кэш пользователя
+        api_cache.invalidate_user_cache(user_id)
+        
+        return {
+            "status": "success", 
+            "message": "Блюдо успешно удалено",
+            "deleted_entry": {
+                "timestamp": timestamp,
+                "description": parse_products_cached(entry_to_remove.get('response', ''))
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Ошибка в delete_meal: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
