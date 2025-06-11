@@ -168,7 +168,7 @@ class ProfileUpdateData(BaseModel):
     activity: Optional[str] = None
     pregnant: Optional[bool] = None
     utc_offset: Optional[int] = None
-    morning_reminded: Optional[bool] = None
+    morning_reminders_enabled: Optional[bool] = None
 
 # Модель для итогов дня
 class DaySummary(BaseModel):
