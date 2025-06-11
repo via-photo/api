@@ -64,11 +64,30 @@ class APICache:
         print(f"Очистка кэша для пользователя: {user_id}")
         print(f"Текущие ключи кэша: {list(self.cache.keys())}")
         
+        # Генерируем возможные ключи кэша для этого пользователя
+        possible_prefixes = ["day_summary", "diary", "stats", "recipes", "profile", "diary_data"]
         keys_to_remove = []
-        for key in self.cache.keys():
-            # Ищем ключи содержащие user_id
-            if user_id in str(key):
+        
+        for prefix in possible_prefixes:
+            # Генерируем ключ без дополнительных параметров
+            key = self.get_cache_key(prefix, user_id)
+            if key in self.cache:
                 keys_to_remove.append(key)
+            
+            # Для diary_data также проверяем с разными датами
+            if prefix == "diary_data":
+                for days_offset in range(-7, 8):  # Проверяем неделю назад и вперед
+                    from datetime import datetime, timedelta
+                    date = datetime.now() + timedelta(days=days_offset)
+                    date_str = date.strftime("%Y-%m-%d")
+                    key_with_date = self.get_cache_key(prefix, user_id, date=date_str)
+                    if key_with_date in self.cache:
+                        keys_to_remove.append(key_with_date)
+                
+                # Также проверяем ключ с "today"
+                key_today = self.get_cache_key(prefix, user_id, date="today")
+                if key_today in self.cache:
+                    keys_to_remove.append(key_today)
         
         print(f"Ключи для удаления: {keys_to_remove}")
         
