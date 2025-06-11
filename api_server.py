@@ -1045,7 +1045,7 @@ async def get_user_profile(user_id: str, api_key: str = Depends(verify_api_key))
 @app.put("/api/profile/{user_id}", response_model=Dict[str, Any])
 async def update_user_profile(user_id: str, profile_data: ProfileUpdateData, api_key: str = Depends(verify_api_key)):
     """
-    Обновление данных профиля пользователя с инвалидацией кэша
+    Обновление данных профиля пользователя с автоматическим пересчетом целевых значений и инвалидацией кэша
     """
     try:
         # Импортируем функции из bot.py
@@ -1062,13 +1062,87 @@ async def update_user_profile(user_id: str, profile_data: ProfileUpdateData, api
         update_dict = profile_data.dict(exclude_unset=True)
         current_data.update(update_dict)
         
+        # Проверяем, нужно ли пересчитывать целевые значения
+        # Пересчитываем если изменились: пол, возраст, рост, вес, цель, активность, беременность
+        recalculate_fields = {"gender", "age", "height", "weight", "goal", "activity", "pregnant"}
+        should_recalculate = bool(recalculate_fields.intersection(update_dict.keys()))
+        
+        if should_recalculate:
+            # Извлекаем необходимые данные для расчета
+            gender = current_data.get("gender")
+            age = current_data.get("age")
+            height = current_data.get("height")
+            weight = current_data.get("weight")
+            goal = current_data.get("goal")
+            activity = current_data.get("activity")
+            pregnant = current_data.get("pregnant", False)
+            
+            # Проверяем наличие всех необходимых данных
+            if all([gender, age, height, weight, goal, activity]):
+                # Расчет BMR (Mifflin-St Jeor)
+                if gender == "муж":
+                    bmr = 10 * weight + 6.25 * height - 5 * age + 5
+                else:
+                    bmr = 10 * weight + 6.25 * height - 5 * age - 161
+                
+                # Коэффициенты активности
+                multipliers = {"низкий": 1.2, "средний": 1.3, "высокий": 1.4}
+                maintenance = bmr * multipliers.get(activity, 1.2)
+                
+                # Расчет целевых калорий
+                if pregnant:
+                    if goal == weight:
+                        target_calories = maintenance * 1.17
+                    elif goal < weight:
+                        target_calories = maintenance
+                    else:
+                        target_calories = maintenance * 1.34
+                else:
+                    if goal == weight:
+                        target_calories = maintenance
+                    elif goal < weight:
+                        target_calories = maintenance * 0.83
+                    else:
+                        target_calories = maintenance * 1.17
+                
+                target_calories = max(1200, target_calories)
+                
+                # Расчет БЖУ
+                protein_grams = int((target_calories * 0.3) / 4)
+                fat_grams = int((target_calories * 0.3) / 9)
+                carbs_grams = int((target_calories * 0.4) / 4)
+                fiber_grams = max(20, round(target_calories * 0.014))
+                
+                # Обновляем целевые значения
+                current_data["target_kcal"] = int(target_calories)
+                current_data["target_protein"] = protein_grams
+                current_data["target_fat"] = fat_grams
+                current_data["target_carb"] = carbs_grams
+                current_data["target_fiber"] = fiber_grams
+        
         # Сохраняем обновленные данные
         await update_user_data(user_id, current_data)
         
         # Очищаем кэш пользователя после обновления
         api_cache.invalidate_user_cache(user_id)
         
-        return {"status": "success", "message": "Профиль обновлен", "data": current_data}
+        response_data = {
+            "status": "success", 
+            "message": "Профиль обновлен" + (" и целевые значения пересчитаны" if should_recalculate else ""), 
+            "data": current_data,
+            "recalculated": should_recalculate
+        }
+        
+        if should_recalculate:
+            response_data["targets"] = {
+                "target_kcal": current_data.get("target_kcal"),
+                "target_protein": current_data.get("target_protein"),
+                "target_fat": current_data.get("target_fat"),
+                "target_carb": current_data.get("target_carb"),
+                "target_fiber": current_data.get("target_fiber")
+            }
+        
+        return response_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
