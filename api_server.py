@@ -61,9 +61,6 @@ class APICache:
     
     def invalidate_user_cache(self, user_id: str):
         """Очищает весь кэш пользователя"""
-        print(f"Очистка кэша для пользователя: {user_id}")
-        print(f"Текущие ключи кэша: {list(self.cache.keys())}")
-        
         # Генерируем возможные ключи кэша для этого пользователя
         possible_prefixes = ["day_summary", "diary", "stats", "recipes", "profile", "diary_data"]
         keys_to_remove = []
@@ -89,14 +86,9 @@ class APICache:
                 if key_today in self.cache:
                     keys_to_remove.append(key_today)
         
-        print(f"Ключи для удаления: {keys_to_remove}")
-        
         for key in keys_to_remove:
             self.cache.pop(key, None)
             self.cache_ttl.pop(key, None)
-            print(f"Удален ключ кэша: {key}")
-        
-        print(f"Кэш после очистки: {list(self.cache.keys())}")
 
 # Глобальный экземпляр кэша
 api_cache = APICache()
