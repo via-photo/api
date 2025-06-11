@@ -559,8 +559,8 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
             print(f"Ошибка получения истории пользователя {user_id}: {e}")
             history = []
         
-        # Фильтруем записи о еде (photo и text типы содержат информацию о еде)
-        food_entries = [entry for entry in history if entry.get("type") in ["photo", "text"]]
+        # Фильтруем записи о еде (food и text типы содержат информацию о еде)
+        food_entries = [entry for entry in history if entry.get("type") in ["food", "text"]]
         # Отладочное логирование удалено для оптимизации
         
         # Подсчет типов записей для анализа (без вывода)
@@ -627,12 +627,11 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                         "fiber": 0
                     }
                 
-                # Извлекаем БЖУ из ответа (включая клетчатку)
+                # Используем кэшированную функцию парсинга БЖУ (как в других эндпоинтах)
                 response = entry.get("response", "")
-                match = re.search(r"(\d+(?:[.,]\d+)?) ккал, Белки: (\d+(?:[.,]\d+)?) г, Жиры: (\d+(?:[.,]\d+)?) г, Углеводы: (\d+(?:[.,]\d+)?) г, Клетчатка: (\d+(?:[.,]\d+)?) г", response)
+                kcal, prot, fat, carb, fiber = parse_nutrition_cached(response)
                 
-                if match:
-                    kcal, prot, fat, carb, fiber = map(lambda x: float(x.replace(",", ".")), match.groups())
+                if kcal > 0:  # Если удалось распарсить данные
                     days[date_str]["calories"] += kcal
                     days[date_str]["protein"] += prot
                     days[date_str]["fat"] += fat
@@ -644,12 +643,6 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                     total_fat += fat
                     total_carb += carb
                     total_fiber += fiber
-                    
-                    if i < 5:  # Первые 5 записей для контроля качества данных
-                        pass  # Отладочное логирование удалено для оптимизации
-                else:
-                    if i < 5:  # Первые 5 записей для контроля качества данных
-                        pass  # Отладочное логирование удалено для оптимизации
                         
             except Exception as e:
                 print(f"Ошибка обработки записи {i+1}: {e}")
@@ -767,21 +760,8 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
                 today_meals = []
                 
                 for i, entry in enumerate(entries_today, start=1):
-                    kcal = prot = fat = carb = fiber = 0.0
-                    
-                    # Извлекаем БЖУ из ответа
-                    match = re.search(
-                        r'Итого:\s*[~≈]?\s*(\d+\.?\d*)\s*ккал.*?'
-                        r'Белки[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
-                        r'Жиры[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
-                        r'Углеводы[:\-]?\s*[~≈]?\s*(\d+\.?\d*)\s*г.*?'
-                        r'Клетчатка[:\-]?\s*([~≈]?\s*\d+\.?\d*)\s*г',
-                        entry['response'], flags=re.IGNORECASE | re.DOTALL
-                    )
-                    
-                    if match:
-                        kcal, prot, fat, carb = map(lambda x: round(float(x)), match.groups()[:4])
-                        fiber = round(float(match.groups()[4]), 1)
+                    # Используем кэшированную функцию парсинга БЖУ
+                    kcal, prot, fat, carb, fiber = parse_nutrition_cached(entry['response'])
                     
                     today_kcal += kcal
                     today_prot += prot
