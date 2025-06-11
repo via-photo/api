@@ -246,8 +246,8 @@ async def get_day_summary(user_id: str, date_str: Optional[str] = None, api_key:
         # Получаем историю пользователя
         history = await get_history(user_id)
         
-        # Фильтруем записи за указанную дату
-        entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == target_date]
+        # Фильтруем записи за указанную дату и записи о еде (включая текстовые и голосовые)
+        entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == target_date and e.get("type") in ["food", "text"]]
         
         if not entries_today:
             result = {
@@ -441,7 +441,8 @@ async def get_diary(user_id: str, api_key: str = Depends(verify_api_key)):
         # Группируем записи по дням
         days_dict = {}
         for entry in history:
-            if entry.get("type") != "food":
+            # Включаем все записи о еде: и с фото (type="food"), и текстовые/голосовые (type="text")
+            if entry.get("type") not in ["food", "text"]:
                 continue
                 
             # Получаем дату из timestamp
@@ -757,8 +758,8 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
         
         # Вызываем функцию напрямую без API endpoint
         try:
-            # Получаем данные дневника за сегодня
-            entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == today]
+            # Получаем данные дневника за сегодня (включая текстовые и голосовые записи)
+            entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == today and e.get("type") in ["food", "text"]]
             
             if entries_today:
                 # Подсчитываем общие значения за сегодня
@@ -1272,8 +1273,8 @@ async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: 
         food_entries_with_images = [e for e in history if e.get('type') == 'food' and e.get('compressed_image')]
         food_entries_without_images = [e for e in history if e.get('type') == 'food' and not e.get('compressed_image')]
         
-        # Фильтруем записи за указанную дату и только записи о еде
-        entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == target_date and e.get("type") == "food"]
+        # Фильтруем записи за указанную дату и записи о еде (включая текстовые и голосовые)
+        entries_today = [e for e in history if e["timestamp"].astimezone(user_tz).date() == target_date and e.get("type") in ["food", "text"]]
         
         # Отладочное логирование удалено для оптимизации
         for i, entry in enumerate(entries_today):
