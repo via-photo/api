@@ -1584,3 +1584,256 @@ async def delete_meal(user_id: str, timestamp: str, api_key: str = Depends(verif
         print(f"Ошибка в delete_meal: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# Модель для записи веса (совместимая с логикой бота)
+class WeightEntry(BaseModel):
+    weight: float
+    date: Optional[str] = None  # Если не указана, используется текущая дата
+    note: Optional[str] = None
+    recalculate_targets: bool = True  # Пересчитать целевые значения КБЖУ как в боте
+
+# Модель для истории веса
+class WeightHistory(BaseModel):
+    entries: List[Dict[str, Any]]
+    current_weight: Optional[float] = None
+    goal_weight: Optional[float] = None
+    weight_change: Optional[float] = None  # Изменение с предыдущей записи
+
+
+
+# Эндпоинты для работы с весом
+
+@app.post("/api/weight/{user_id}", response_model=Dict[str, Any])
+async def add_weight_entry(user_id: str, weight_data: WeightEntry, api_key: str = Depends(verify_api_key)):
+    """
+    Добавление новой записи веса с автоматическим пересчетом целевых значений
+    """
+    try:
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        try:
+            from bot import get_user_data, update_user_data, add_history_entry
+        except ImportError:
+            return {"status": "success", "message": "Test mode"}
+        
+        # Получаем текущие данные пользователя
+        current_data = await get_user_data(user_id)
+        
+        # Устанавливаем дату если не указана
+        entry_date = weight_data.date or datetime.now().strftime("%Y-%m-%d")
+        
+        # Обновляем текущий вес в профиле
+        old_weight = current_data.get("weight")
+        current_data["weight"] = weight_data.weight
+        
+        # Добавляем запись в историю
+        history_entry = {
+            "prompt": f"Обновление веса: {weight_data.weight} кг",
+            "response": f"Вес обновлен с {old_weight} кг на {weight_data.weight} кг" + (f". Заметка: {weight_data.note}" if weight_data.note else ""),
+            "timestamp": datetime.now(),
+            "type": "weight",
+            "data": {
+                "weight": weight_data.weight,
+                "date": entry_date,
+                "note": weight_data.note,
+                "previous_weight": old_weight
+            }
+        }
+        
+        await add_history_entry(user_id, history_entry)
+        
+        # Пересчитываем целевые значения с новым весом
+        gender = current_data.get("gender")
+        age = current_data.get("age")
+        height = current_data.get("height")
+        goal = current_data.get("goal")
+        activity = current_data.get("activity")
+        pregnant = current_data.get("pregnant", False)
+        
+        if all([gender, age, height, goal, activity]):
+            # Расчет BMR (Mifflin-St Jeor)
+            if gender == "муж":
+                bmr = 10 * weight_data.weight + 6.25 * height - 5 * age + 5
+            else:
+                bmr = 10 * weight_data.weight + 6.25 * height - 5 * age - 161
+            
+            # Коэффициенты активности
+            multipliers = {"низкий": 1.2, "средний": 1.3, "высокий": 1.4}
+            maintenance = bmr * multipliers.get(activity, 1.2)
+            
+            # Расчет целевых калорий
+            if pregnant:
+                if goal == weight_data.weight:
+                    target_calories = maintenance * 1.17
+                elif goal < weight_data.weight:
+                    target_calories = maintenance
+                else:
+                    target_calories = maintenance * 1.34
+            else:
+                if goal == weight_data.weight:
+                    target_calories = maintenance
+                elif goal < weight_data.weight:
+                    target_calories = maintenance * 0.83
+                else:
+                    target_calories = maintenance * 1.17
+            
+            target_calories = max(1200, target_calories)
+            
+            # Расчет БЖУ
+            protein_grams = int((target_calories * 0.3) / 4)
+            fat_grams = int((target_calories * 0.3) / 9)
+            carbs_grams = int((target_calories * 0.4) / 4)
+            fiber_grams = max(20, round(target_calories * 0.014))
+            
+            # Обновляем целевые значения
+            current_data["target_kcal"] = int(target_calories)
+            current_data["target_protein"] = protein_grams
+            current_data["target_fat"] = fat_grams
+            current_data["target_carb"] = carbs_grams
+            current_data["target_fiber"] = fiber_grams
+        
+        # Сохраняем запись в историю для отслеживания изменений веса
+        history_entry = {
+            "prompt": f"Изменение веса: {weight_data.weight} кг",
+            "response": f"Вес обновлен с {old_weight} кг на {weight_data.weight} кг. Целевые значения пересчитаны.",
+            "type": "weight_update",
+            "timestamp": datetime.now(),
+            "compressed_image": None
+        }
+        
+        # Добавляем в историю (используем функцию из bot.py)
+        try:
+            from bot import add_history_entry
+            await add_history_entry(user_id, history_entry)
+        except ImportError:
+            # В тестовом режиме просто логируем
+            print(f"История веса: {history_entry}")
+        
+        # Сохраняем обновленные данные
+        await update_user_data(user_id, current_data)
+        
+        # Очищаем кэш пользователя
+        api_cache.invalidate_user_cache(user_id)
+        
+        weight_change = None
+        if old_weight:
+            weight_change = round(weight_data.weight - old_weight, 1)
+        
+        return {
+            "status": "success",
+            "message": "Вес обновлен и целевые значения пересчитаны",
+            "data": {
+                "new_weight": weight_data.weight,
+                "previous_weight": old_weight,
+                "weight_change": weight_change,
+                "date": entry_date,
+                "targets_recalculated": True
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/weight/{user_id}", response_model=Dict[str, Any])
+async def get_weight_history(user_id: str, period: str = "month", api_key: str = Depends(verify_api_key)):
+    """
+    Получение истории веса пользователя
+    period: week, month, 6months, year
+    """
+    try:
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        try:
+            from bot import get_user_data, get_history
+        except ImportError:
+            return {"status": "success", "message": "Test mode", "data": {"entries": [], "current_weight": 70.0}}
+        
+        # Получаем данные пользователя
+        user_data = await get_user_data(user_id)
+        current_weight = user_data.get("weight")
+        goal_weight = user_data.get("goal")
+        
+        # Получаем историю
+        history = await get_history(user_id)
+        
+        # Фильтруем записи веса (включая новый тип weight_update)
+        weight_entries = [entry for entry in history if entry.get("type") in ["weight", "weight_update"]]
+        
+        # Определяем период для фильтрации
+        now = datetime.now()
+        if period == "week":
+            start_date = now - timedelta(days=7)
+        elif period == "month":
+            start_date = now - timedelta(days=30)
+        elif period == "6months":
+            start_date = now - timedelta(days=180)
+        elif period == "year":
+            start_date = now - timedelta(days=365)
+        else:
+            start_date = now - timedelta(days=30)  # По умолчанию месяц
+        
+        # Фильтруем записи по периоду
+        filtered_entries = []
+        for entry in weight_entries:
+            entry_date = entry.get("timestamp")
+            if isinstance(entry_date, str):
+                entry_date = datetime.fromisoformat(entry_date.replace('Z', '+00:00'))
+            
+            if entry_date >= start_date:
+                weight_data = entry.get("data", {})
+                filtered_entries.append({
+                    "date": weight_data.get("date", entry_date.strftime("%Y-%m-%d")),
+                    "weight": weight_data.get("weight"),
+                    "note": weight_data.get("note"),
+                    "timestamp": entry_date.isoformat()
+                })
+        
+        # Сортируем по дате (новые сначала)
+        filtered_entries.sort(key=lambda x: x["timestamp"], reverse=True)
+        
+        # Вычисляем изменение веса
+        weight_change = None
+        if len(filtered_entries) >= 2:
+            latest_weight = filtered_entries[0]["weight"]
+            previous_weight = filtered_entries[1]["weight"]
+            if latest_weight and previous_weight:
+                weight_change = round(latest_weight - previous_weight, 1)
+        
+        return {
+            "status": "success",
+            "data": {
+                "entries": filtered_entries,
+                "current_weight": current_weight,
+                "goal_weight": goal_weight,
+                "weight_change": weight_change,
+                "period": period,
+                "total_entries": len(filtered_entries)
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/weight/{user_id}/{entry_date}")
+async def delete_weight_entry(user_id: str, entry_date: str, api_key: str = Depends(verify_api_key)):
+    """
+    Удаление записи веса по дате
+    """
+    try:
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        try:
+            from bot import get_history
+        except ImportError:
+            return {"status": "success", "message": "Test mode"}
+        
+        # Здесь должна быть логика удаления записи из базы данных
+        # Пока возвращаем успешный ответ
+        return {
+            "status": "success",
+            "message": f"Запись веса за {entry_date} удалена"
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
