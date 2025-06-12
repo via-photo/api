@@ -1692,22 +1692,37 @@ async def add_weight_entry(user_id: str, weight_data: WeightEntry, api_key: str 
             current_data["target_carb"] = carbs_grams
             current_data["target_fiber"] = fiber_grams
         
-        # Сохраняем запись в историю для отслеживания изменений веса
-        history_entry = {
-            "prompt": f"Изменение веса: {weight_data.weight} кг",
-            "response": f"Вес обновлен с {old_weight} кг на {weight_data.weight} кг. Целевые значения пересчитаны.",
-            "type": "weight_update",
-            "timestamp": datetime.now(),
-            "compressed_image": None
-        }
+        # Проверяем что вес действительно изменился, чтобы избежать дублирования
+        if old_weight and abs(old_weight - weight_data.weight) < 0.01:
+            return {
+                "status": "success", 
+                "message": "Вес не изменился",
+                "data": {
+                    "new_weight": weight_data.weight,
+                    "previous_weight": old_weight,
+                    "weight_change": 0,
+                    "date": entry_date,
+                    "targets_recalculated": False
+                }
+            }
         
-        # Добавляем в историю (используем функцию из bot.py)
-        try:
-            from bot import add_history_entry
-            await add_history_entry(user_id, history_entry)
-        except ImportError:
-            # В тестовом режиме просто логируем
-            print(f"История веса: {history_entry}")
+        # Сохраняем запись в историю только если вес изменился
+        if weight_data.recalculate_targets:
+            history_entry = {
+                "prompt": f"Изменение веса: {weight_data.weight} кг",
+                "response": f"Вес обновлен с {old_weight or 'не указан'} кг на {weight_data.weight} кг. Целевые значения пересчитаны.",
+                "type": "weight_update",
+                "timestamp": datetime.now(),
+                "compressed_image": None
+            }
+            
+            # Добавляем в историю (используем функцию из bot.py)
+            try:
+                from bot import add_history_entry
+                await add_history_entry(user_id, history_entry)
+            except ImportError:
+                # В тестовом режиме просто логируем
+                print(f"История веса: {history_entry}")
         
         # Сохраняем обновленные данные
         await update_user_data(user_id, current_data)
@@ -1772,7 +1787,7 @@ async def get_weight_history(user_id: str, period: str = "month", api_key: str =
         else:
             start_date = now - timedelta(days=30)  # По умолчанию месяц
         
-        # Фильтруем записи по периоду
+        # Фильтруем записи по периоду и извлекаем вес из разных источников
         filtered_entries = []
         for entry in weight_entries:
             entry_date = entry.get("timestamp")
@@ -1780,11 +1795,31 @@ async def get_weight_history(user_id: str, period: str = "month", api_key: str =
                 entry_date = datetime.fromisoformat(entry_date.replace('Z', '+00:00'))
             
             if entry_date >= start_date:
-                weight_data = entry.get("data", {})
+                # Извлекаем вес из разных источников
+                weight = None
+                note = ""
+                
+                # Пытаемся извлечь вес из prompt (для записей типа weight_update)
+                if entry.get("type") == "weight_update":
+                    prompt = entry.get("prompt", "")
+                    import re
+                    weight_match = re.search(r'(\d+(?:\.\d+)?)\s*кг', prompt)
+                    if weight_match:
+                        weight = float(weight_match.group(1))
+                
+                # Если не нашли в prompt, пытаемся из data
+                if weight is None:
+                    weight_data = entry.get("data", {})
+                    weight = weight_data.get("weight")
+                
+                # Пропускаем записи без валидного веса
+                if weight is None or weight <= 0:
+                    continue
+                
                 filtered_entries.append({
-                    "date": weight_data.get("date", entry_date.strftime("%Y-%m-%d")),
-                    "weight": weight_data.get("weight"),
-                    "note": weight_data.get("note"),
+                    "date": entry_date.strftime("%Y-%m-%d"),
+                    "weight": weight,
+                    "note": note,
                     "timestamp": entry_date.isoformat()
                 })
         
