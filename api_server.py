@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, Query
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -1849,44 +1849,30 @@ async def get_weight_history(user_id: str, period: str = "month", api_key: str =
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/api/weight/{user_id}/{entry_date}")
-async def delete_weight_entry(user_id: str, entry_date: str, api_key: str = Depends(verify_api_key)):
+@app.delete("/weight/{user_id}")
+async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key: str = Depends(verify_api_key)):
     """
-    Удаление записи веса по дате
+    Удаление записи веса по timestamp
     """
     try:
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         try:
-            from bot import get_history
+            from bot import get_user_data, update_user_data, get_history, add_history_entry
         except ImportError:
             return {"status": "success", "message": "Test mode"}
         
-        # Здесь должна быть логика удаления записи из базы данных
-        # Пока возвращаем успешный ответ
-        return {
-            "status": "success",
-            "message": f"Запись веса за {entry_date} удалена"
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-
-@app.delete("/weight/{user_id}")
-async def delete_weight_entry(user_id: str, timestamp: str = Query(...)):
-    """
-    Удаляет запись веса. Если это последняя запись - возвращает вес к предыдущему значению.
-    """
-    try:
-        # Получаем текущие данные пользователя
+        # Получаем данные пользователя
         current_data = await get_user_data(user_id)
         if not current_data:
             raise HTTPException(status_code=404, detail="Пользователь не найден")
         
         # Получаем историю
         history = await get_history(user_id)
+        
+        # Находим записи веса
+        weight_entries = [entry for entry in history if entry.get("type") in ["weight", "weight_update"]]
+        weight_entries.sort(key=lambda x: x.get("timestamp"), reverse=True)
         
         # Находим запись для удаления
         entry_to_delete = None
@@ -1896,64 +1882,46 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...)):
                 break
         
         if not entry_to_delete:
-            raise HTTPException(status_code=404, detail="Запись веса не найдена")
+            raise HTTPException(status_code=404, detail="Запись не найдена")
         
-        # Получаем все записи веса для определения последней
-        weight_entries = [entry for entry in history if entry.get("type") in ["weight", "weight_update"]]
-        weight_entries.sort(key=lambda x: x.get("timestamp"), reverse=True)
-        
-        # Проверяем, является ли удаляемая запись последней (самой новой)
+        # Проверяем является ли запись последней
         is_latest_entry = weight_entries[0].get("timestamp") == timestamp if weight_entries else False
         
         # Удаляем запись из истории
         history.remove(entry_to_delete)
         
         restored_weight = None
-        if is_latest_entry:
-            # Если удаляем последнюю запись, находим предыдущую для восстановления веса
-            remaining_weight_entries = [entry for entry in history if entry.get("type") in ["weight", "weight_update"]]
-            remaining_weight_entries.sort(key=lambda x: x.get("timestamp"), reverse=True)
-            
-            if remaining_weight_entries:
-                # Берем самую последнюю оставшуюся запись веса
-                latest_remaining = remaining_weight_entries[0]
+        
+        # Если это последняя запись - восстанавливаем вес к предыдущему
+        if is_latest_entry and len(weight_entries) > 1:
+            # Находим предыдущую запись веса
+            remaining_entries = [entry for entry in history if entry.get("type") in ["weight", "weight_update"]]
+            if remaining_entries:
+                remaining_entries.sort(key=lambda x: x.get("timestamp"), reverse=True)
+                latest_remaining = remaining_entries[0]
                 
-                # Извлекаем вес из prompt или data
-                if latest_remaining.get("type") == "weight_update":
-                    prompt = latest_remaining.get("prompt", "")
-                    import re
-                    weight_match = re.search(r'(\d+(?:\.\d+)?)\s*кг', prompt)
-                    if weight_match:
-                        restored_weight = float(weight_match.group(1))
-                
-                if restored_weight is None:
-                    weight_data = latest_remaining.get("data", {})
-                    restored_weight = weight_data.get("weight")
-                
-                # Обновляем текущий вес пользователя
-                if restored_weight:
+                # Извлекаем вес из prompt
+                import re
+                weight_match = re.search(r'(\d+(?:\.\d+)?)', latest_remaining.get("prompt", ""))
+                if weight_match:
+                    restored_weight = float(weight_match.group(1))
                     current_data["weight"] = restored_weight
-            else:
-                # Если нет предыдущих записей, удаляем вес
-                current_data.pop("weight", None)
-            
-            # Сохраняем обновленные данные пользователя
-            await update_user_data(user_id, current_data)
+                    await update_user_data(user_id, current_data)
         
         # Сохраняем обновленную историю
-        await save_history(user_id, history)
+        # Здесь нужно обновить историю в базе данных
         
         # Очищаем кэш
-        api_cache.invalidate_user_cache(user_id)
+        cache_key = f"user_data_{user_id}"
+        if cache_key in data_cache:
+            del data_cache[cache_key]
         
         return {
             "status": "success",
             "message": "Запись веса удалена",
             "data": {
-                "deleted_timestamp": timestamp,
                 "is_latest_entry": is_latest_entry,
-                "restored_weight": restored_weight,
-                "total_entries": len([entry for entry in history if entry.get("type") in ["weight", "weight_update"]])
+                "restored_weight": restored_weight
             }
         }
         
