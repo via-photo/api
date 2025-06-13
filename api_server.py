@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -1875,9 +1875,9 @@ async def delete_weight_entry(user_id: str, entry_date: str, api_key: str = Depe
 
 
 @app.delete("/weight/{user_id}")
-async def delete_weight_entry(user_id: str, timestamp: str):
+async def delete_weight_entry(user_id: str, timestamp: str = Query(...)):
     """
-    Удаляет запись веса и возвращает вес к предыдущему значению
+    Удаляет запись веса. Если это последняя запись - возвращает вес к предыдущему значению.
     """
     try:
         # Получаем текущие данные пользователя
@@ -1898,39 +1898,47 @@ async def delete_weight_entry(user_id: str, timestamp: str):
         if not entry_to_delete:
             raise HTTPException(status_code=404, detail="Запись веса не найдена")
         
-        # Удаляем запись из истории
-        history.remove(entry_to_delete)
-        
-        # Находим предыдущую запись веса для восстановления
+        # Получаем все записи веса для определения последней
         weight_entries = [entry for entry in history if entry.get("type") in ["weight", "weight_update"]]
         weight_entries.sort(key=lambda x: x.get("timestamp"), reverse=True)
         
-        previous_weight = None
-        if weight_entries:
-            # Берем самую последнюю запись веса
-            latest_entry = weight_entries[0]
-            
-            # Извлекаем вес из prompt или data
-            if latest_entry.get("type") == "weight_update":
-                prompt = latest_entry.get("prompt", "")
-                import re
-                weight_match = re.search(r'(\d+(?:\.\d+)?)\s*кг', prompt)
-                if weight_match:
-                    previous_weight = float(weight_match.group(1))
-            
-            if previous_weight is None:
-                weight_data = latest_entry.get("data", {})
-                previous_weight = weight_data.get("weight")
+        # Проверяем, является ли удаляемая запись последней (самой новой)
+        is_latest_entry = weight_entries[0].get("timestamp") == timestamp if weight_entries else False
         
-        # Обновляем текущий вес пользователя
-        if previous_weight:
-            current_data["weight"] = previous_weight
-        else:
-            # Если нет предыдущих записей, удаляем вес
-            current_data.pop("weight", None)
+        # Удаляем запись из истории
+        history.remove(entry_to_delete)
         
-        # Сохраняем обновленные данные
-        await update_user_data(user_id, current_data)
+        restored_weight = None
+        if is_latest_entry:
+            # Если удаляем последнюю запись, находим предыдущую для восстановления веса
+            remaining_weight_entries = [entry for entry in history if entry.get("type") in ["weight", "weight_update"]]
+            remaining_weight_entries.sort(key=lambda x: x.get("timestamp"), reverse=True)
+            
+            if remaining_weight_entries:
+                # Берем самую последнюю оставшуюся запись веса
+                latest_remaining = remaining_weight_entries[0]
+                
+                # Извлекаем вес из prompt или data
+                if latest_remaining.get("type") == "weight_update":
+                    prompt = latest_remaining.get("prompt", "")
+                    import re
+                    weight_match = re.search(r'(\d+(?:\.\d+)?)\s*кг', prompt)
+                    if weight_match:
+                        restored_weight = float(weight_match.group(1))
+                
+                if restored_weight is None:
+                    weight_data = latest_remaining.get("data", {})
+                    restored_weight = weight_data.get("weight")
+                
+                # Обновляем текущий вес пользователя
+                if restored_weight:
+                    current_data["weight"] = restored_weight
+            else:
+                # Если нет предыдущих записей, удаляем вес
+                current_data.pop("weight", None)
+            
+            # Сохраняем обновленные данные пользователя
+            await update_user_data(user_id, current_data)
         
         # Сохраняем обновленную историю
         await save_history(user_id, history)
@@ -1943,8 +1951,9 @@ async def delete_weight_entry(user_id: str, timestamp: str):
             "message": "Запись веса удалена",
             "data": {
                 "deleted_timestamp": timestamp,
-                "restored_weight": previous_weight,
-                "total_entries": len(weight_entries)
+                "is_latest_entry": is_latest_entry,
+                "restored_weight": restored_weight,
+                "total_entries": len([entry for entry in history if entry.get("type") in ["weight", "weight_update"]])
             }
         }
         
