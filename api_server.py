@@ -1893,14 +1893,12 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
             weight_entry_to_delete = None
             
             if entry_to_delete.data is None or not entry_to_delete.data.get("weight"):
-                print(f"DEBUG: Удаляемая запись не содержит веса, ищем связанную запись")
                 
                 # Ищем запись с весом, созданную примерно в то же время (в пределах 1 секунды)
                 target_time = entry_to_delete.timestamp
                 for entry in weight_entries:
                     if (entry.data and entry.data.get("weight") and 
                         abs((entry.timestamp - target_time).total_seconds()) < 1):
-                        print(f"DEBUG: Найдена связанная запись с весом: {entry.data.get('weight')}")
                         weight_entry_to_delete = entry
                         entry_to_delete = entry  # Используем для логики восстановления веса
                         break
@@ -1915,30 +1913,23 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
             is_latest_entry = (latest_weight_entry and 
                              latest_weight_entry.id == entry_to_delete.id) if latest_weight_entry else False
             
-            print(f"DEBUG: Удаляемая запись timestamp: {timestamp}")
-            print(f"DEBUG: Найденная запись timestamp: {entry_to_delete.timestamp.isoformat()}")
-            print(f"DEBUG: Это последняя запись: {is_latest_entry}")
-            print(f"DEBUG: Всего записей веса: {len(weight_entries)}")
             
             # Выводим все записи для отладки
             for i, entry in enumerate(weight_entries):
                 weight_from_data = None
                 if entry.data and isinstance(entry.data, dict):
                     weight_from_data = entry.data.get("weight")
-                print(f"DEBUG: Запись {i}: timestamp={entry.timestamp.isoformat()}, weight={weight_from_data}")
             
             restored_weight = None
             
             # Если это последняя запись и есть предыдущие записи
             if is_latest_entry and len(weight_entries) > 1:
-                print(f"DEBUG: Ищем предыдущую запись среди {len(weight_entries)} записей")
                 
                 # Получаем вес удаляемой записи
                 deleted_weight = None
                 if entry_to_delete.data and isinstance(entry_to_delete.data, dict):
                     deleted_weight = entry_to_delete.data.get("weight")
                 
-                print(f"DEBUG: Вес удаляемой записи: {deleted_weight}")
                 
                 # Ищем предыдущую запись с ДРУГИМ весом
                 previous_entry = None
@@ -1950,12 +1941,9 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
                     # Если нашли запись с другим весом - это наша предыдущая запись
                     if entry_weight is not None and entry_weight != deleted_weight:
                         previous_entry = entry
-                        print(f"DEBUG: Найдена предыдущая запись с другим весом: {entry_weight}")
                         break
                 
                 if previous_entry:
-                    print(f"DEBUG: Предыдущая запись timestamp: {previous_entry.timestamp}")
-                    print(f"DEBUG: Предыдущая запись data: {previous_entry.data}")
                     
                     # Извлекаем вес из предыдущей записи
                     import re
@@ -1965,26 +1953,20 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
                         try:
                             data_dict = previous_entry.data if isinstance(previous_entry.data, dict) else {}
                             restored_weight = data_dict.get("weight")
-                            print(f"DEBUG: Вес из data предыдущей записи: {restored_weight}")
                         except Exception as e:
-                            print(f"DEBUG: Ошибка извлечения из data: {e}")
                     
                     # Если не нашли в data, пытаемся извлечь из prompt
                     if restored_weight is None:
                         weight_match = re.search(r'(\d+(?:\.\d+)?)', previous_entry.prompt or "")
                         if weight_match:
                             restored_weight = float(weight_match.group(1))
-                            print(f"DEBUG: Вес из prompt предыдущей записи: {restored_weight}")
                     
-                    print(f"DEBUG: Итоговый восстановленный вес: {restored_weight}")
                     
                     if restored_weight:
                         # Обновляем текущий вес в профиле пользователя
                         current_data["weight"] = restored_weight
                         await update_user_data(user_id, current_data)
-                        print(f"DEBUG: Обновили вес пользователя на: {restored_weight}")
                 else:
-                    print(f"DEBUG: Не найдена предыдущая запись с другим весом")
                 
                 # Удаляем запись из базы данных ПОСЛЕ получения предыдущей
                 entries_to_delete = []
@@ -1992,29 +1974,24 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
                 # Добавляем запись с весом для удаления
                 if weight_entry_to_delete:
                     entries_to_delete.append(weight_entry_to_delete.id)
-                    print(f"DEBUG: Будем удалять запись с весом: {weight_entry_to_delete.id}")
                 
                 # Добавляем оригинальную пустую запись для удаления
                 if original_entry_to_delete and original_entry_to_delete.id != (weight_entry_to_delete.id if weight_entry_to_delete else None):
                     entries_to_delete.append(original_entry_to_delete.id)
-                    print(f"DEBUG: Будем удалять пустую запись: {original_entry_to_delete.id}")
                 
                 # Удаляем все найденные записи
                 for entry_id in entries_to_delete:
                     await session.execute(
                         sql_delete(UserHistory).where(UserHistory.id == entry_id)
                     )
-                    print(f"DEBUG: Удалили запись с ID: {entry_id}")
                 
                 await session.commit()
-                print(f"DEBUG: Удалили {len(entries_to_delete)} записей из базы данных")
             else:
                 # Если это не последняя запись, просто удаляем
                 await session.execute(
                     sql_delete(UserHistory).where(UserHistory.id == entry_to_delete.id)
                 )
                 await session.commit()
-                print(f"DEBUG: Удалили не-последнюю запись из базы данных")
         
         # Очищаем кэш пользователя
         api_cache.invalidate_user_cache(user_id)
