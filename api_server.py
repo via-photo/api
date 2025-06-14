@@ -1914,14 +1914,39 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
                 if remaining_entries:
                     latest_remaining = remaining_entries[0]
                     
-                    # Извлекаем вес из prompt предыдущей записи
+                    # Извлекаем вес из prompt или data предыдущей записи
                     import re
-                    weight_match = re.search(r'(\d+(?:\.\d+)?)', latest_remaining.prompt or "")
-                    if weight_match:
-                        restored_weight = float(weight_match.group(1))
+                    restored_weight = None
+                    
+                    print(f"DEBUG: Обрабатываем запись для восстановления веса:")
+                    print(f"DEBUG: Timestamp: {latest_remaining.timestamp}")
+                    print(f"DEBUG: Type: {latest_remaining.type}")
+                    print(f"DEBUG: Prompt: {latest_remaining.prompt}")
+                    print(f"DEBUG: Data: {latest_remaining.data}")
+                    
+                    # Сначала пытаемся извлечь из data
+                    if latest_remaining.data:
+                        try:
+                            data_dict = latest_remaining.data if isinstance(latest_remaining.data, dict) else {}
+                            restored_weight = data_dict.get("weight")
+                            print(f"DEBUG: Вес из data: {restored_weight}")
+                        except Exception as e:
+                            print(f"DEBUG: Ошибка извлечения из data: {e}")
+                    
+                    # Если не нашли в data, пытаемся извлечь из prompt
+                    if restored_weight is None:
+                        weight_match = re.search(r'(\d+(?:\.\d+)?)', latest_remaining.prompt or "")
+                        if weight_match:
+                            restored_weight = float(weight_match.group(1))
+                            print(f"DEBUG: Вес из prompt: {restored_weight}")
+                    
+                    print(f"DEBUG: Итоговый восстановленный вес: {restored_weight}")
+                    
+                    if restored_weight:
                         # Обновляем текущий вес в профиле пользователя
                         current_data["weight"] = restored_weight
                         await update_user_data(user_id, current_data)
+                        print(f"DEBUG: Обновили вес пользователя на: {restored_weight}")
             else:
                 # Если это не последняя запись, просто удаляем
                 await session.execute(
