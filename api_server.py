@@ -1889,6 +1889,9 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
                 raise HTTPException(status_code=404, detail="Запись не найдена")
             
             # Если удаляемая запись не содержит веса, ищем связанную запись с весом
+            original_entry_to_delete = entry_to_delete  # Сохраняем оригинальную пустую запись
+            weight_entry_to_delete = None
+            
             if entry_to_delete.data is None or not entry_to_delete.data.get("weight"):
                 print(f"DEBUG: Удаляемая запись не содержит веса, ищем связанную запись")
                 
@@ -1898,7 +1901,8 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
                     if (entry.data and entry.data.get("weight") and 
                         abs((entry.timestamp - target_time).total_seconds()) < 1):
                         print(f"DEBUG: Найдена связанная запись с весом: {entry.data.get('weight')}")
-                        entry_to_delete = entry
+                        weight_entry_to_delete = entry
+                        entry_to_delete = entry  # Используем для логики восстановления веса
                         break
             
             # Проверяем является ли запись последней (самой новой) среди записей с весом
@@ -1983,11 +1987,27 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
                     print(f"DEBUG: Не найдена предыдущая запись с другим весом")
                 
                 # Удаляем запись из базы данных ПОСЛЕ получения предыдущей
-                await session.execute(
-                    sql_delete(UserHistory).where(UserHistory.id == entry_to_delete.id)
-                )
+                entries_to_delete = []
+                
+                # Добавляем запись с весом для удаления
+                if weight_entry_to_delete:
+                    entries_to_delete.append(weight_entry_to_delete.id)
+                    print(f"DEBUG: Будем удалять запись с весом: {weight_entry_to_delete.id}")
+                
+                # Добавляем оригинальную пустую запись для удаления
+                if original_entry_to_delete and original_entry_to_delete.id != (weight_entry_to_delete.id if weight_entry_to_delete else None):
+                    entries_to_delete.append(original_entry_to_delete.id)
+                    print(f"DEBUG: Будем удалять пустую запись: {original_entry_to_delete.id}")
+                
+                # Удаляем все найденные записи
+                for entry_id in entries_to_delete:
+                    await session.execute(
+                        sql_delete(UserHistory).where(UserHistory.id == entry_id)
+                    )
+                    print(f"DEBUG: Удалили запись с ID: {entry_id}")
+                
                 await session.commit()
-                print(f"DEBUG: Удалили запись из базы данных")
+                print(f"DEBUG: Удалили {len(entries_to_delete)} записей из базы данных")
             else:
                 # Если это не последняя запись, просто удаляем
                 await session.execute(
