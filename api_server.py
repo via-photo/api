@@ -2009,3 +2009,172 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+@app.post("/api/diary/{user_id}/share")
+async def create_diary_share(
+    user_id: str,
+    period: str = Query("week", description="Период: week, month, custom"),
+    start_date: Optional[str] = Query(None, description="Начальная дата для custom периода"),
+    end_date: Optional[str] = Query(None, description="Конечная дата для custom периода")
+):
+    """Создание публичной ссылки для дневника пользователя"""
+    try:
+        # Генерируем уникальный токен для публичной ссылки
+        import secrets
+        import hashlib
+        
+        # Создаем уникальный токен
+        token_data = f"{user_id}_{period}_{start_date}_{end_date}_{secrets.token_hex(16)}"
+        share_token = hashlib.sha256(token_data.encode()).hexdigest()[:32]
+        
+        # Определяем даты для экспорта
+        if period == "week":
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=7)
+        elif period == "month":
+            end_date = datetime.now().date()
+            start_date = end_date - timedelta(days=30)
+        # Для custom используем переданные даты
+        
+        # Создаем таблицу для хранения публичных ссылок, если её нет
+        async with get_db_connection() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS diary_shares (
+                    share_token TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    period TEXT NOT NULL,
+                    start_date TEXT NOT NULL,
+                    end_date TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                )
+            """)
+            
+            # Сохраняем информацию о публичной ссылке
+            await conn.execute("""
+                INSERT OR REPLACE INTO diary_shares 
+                (share_token, user_id, period, start_date, end_date, created_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                share_token,
+                user_id,
+                period,
+                start_date.isoformat() if isinstance(start_date, date) else start_date,
+                end_date.isoformat() if isinstance(end_date, date) else end_date,
+                datetime.now().isoformat(),
+                (datetime.now() + timedelta(days=30)).isoformat()  # Ссылка действует 30 дней
+            ))
+            await conn.commit()
+        
+        # Формируем публичную ссылку
+        base_url = "https://viaphoto.netlify.app/"
+        share_url = f"{base_url}/shared-diary/{share_token}"
+        
+        return {
+            "success": True,
+            "share_url": share_url,
+            "share_token": share_token,
+            "expires_at": (datetime.now() + timedelta(days=30)).isoformat(),
+            "message": "Публичная ссылка создана успешно"
+        }
+        
+    except Exception as e:
+        logger.error(f"Ошибка при создании публичной ссылки для пользователя {user_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при создании публичной ссылки: {str(e)}")
+
+
+@app.get("/shared-diary/{share_token}")
+async def get_shared_diary(share_token: str):
+    """Получение публичного дневника по токену"""
+    try:
+        async with get_db_connection() as conn:
+            # Проверяем существование и валидность токена
+            cursor = await conn.execute("""
+                SELECT user_id, period, start_date, end_date, expires_at
+                FROM diary_shares 
+                WHERE share_token = ? AND expires_at > ?
+            """, (share_token, datetime.now().isoformat()))
+            
+            share_info = await cursor.fetchone()
+            if not share_info:
+                raise HTTPException(status_code=404, detail="Ссылка не найдена или истекла")
+            
+            user_id, period, start_date, end_date, expires_at = share_info
+            
+            # Получаем данные дневника за указанный период
+            cursor = await conn.execute("""
+                SELECT date, total_calories, total_protein, total_fat, total_carbs, total_fiber
+                FROM UserHistory 
+                WHERE user_id = ? AND type = 'daily_summary' 
+                AND date BETWEEN ? AND ?
+                ORDER BY date DESC
+            """, (user_id, start_date, end_date))
+            
+            daily_summaries = await cursor.fetchall()
+            
+            # Получаем детальные данные о блюдах
+            cursor = await conn.execute("""
+                SELECT timestamp, prompt, data
+                FROM UserHistory 
+                WHERE user_id = ? AND type = 'meal_entry'
+                AND date(timestamp) BETWEEN ? AND ?
+                ORDER BY timestamp DESC
+            """, (user_id, start_date, end_date))
+            
+            meal_entries = await cursor.fetchall()
+            
+            # Получаем информацию о пользователе
+            cursor = await conn.execute("""
+                SELECT data FROM UserHistory 
+                WHERE user_id = ? AND type = 'profile_update'
+                ORDER BY timestamp DESC LIMIT 1
+            """, (user_id,))
+            
+            profile_row = await cursor.fetchone()
+            profile_data = json.loads(profile_row[0]) if profile_row else {}
+            
+        # Формируем ответ
+        diary_data = {
+            "user_info": {
+                "name": profile_data.get("name", "Пользователь"),
+                "age": profile_data.get("age"),
+                "height": profile_data.get("height"),
+                "weight": profile_data.get("weight"),
+                "goal": profile_data.get("goal")
+            },
+            "period": {
+                "start_date": start_date,
+                "end_date": end_date,
+                "period_type": period
+            },
+            "daily_summaries": [
+                {
+                    "date": row[0],
+                    "total_calories": row[1],
+                    "total_protein": row[2],
+                    "total_fat": row[3],
+                    "total_carbs": row[4],
+                    "total_fiber": row[5]
+                }
+                for row in daily_summaries
+            ],
+            "meal_entries": [
+                {
+                    "timestamp": row[0],
+                    "prompt": row[1],
+                    "data": json.loads(row[2]) if row[2] else {}
+                }
+                for row in meal_entries
+            ],
+            "expires_at": expires_at
+        }
+        
+        return diary_data
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Ошибка при получении публичного дневника {share_token}: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении дневника: {str(e)}")
+
