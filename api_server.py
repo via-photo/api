@@ -2037,13 +2037,13 @@ async def create_diary_share(
             start_date = end_date - timedelta(days=30)
         # Для custom используем переданные даты
         
-        # Импортируем функции из bot.py для работы с базой данных
+        # Импортируем настройки базы данных из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-        from bot import get_db_connection
+        from bot import async_session
         
         # Создаем таблицу для хранения публичных ссылок, если её нет
-        async with get_db_connection() as conn:
-            await conn.execute("""
+        async with async_session() as session:
+            await session.execute(text("""
                 CREATE TABLE IF NOT EXISTS diary_shares (
                     share_token TEXT PRIMARY KEY,
                     user_id TEXT NOT NULL,
@@ -2053,23 +2053,30 @@ async def create_diary_share(
                     created_at TEXT NOT NULL,
                     expires_at TEXT NOT NULL
                 )
-            """)
+            """))
             
             # Сохраняем информацию о публичной ссылке
-            await conn.execute("""
-                INSERT OR REPLACE INTO diary_shares 
+            await session.execute(text("""
+                INSERT INTO diary_shares 
                 (share_token, user_id, period, start_date, end_date, created_at, expires_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                share_token,
-                user_id,
-                period,
-                start_date.isoformat() if isinstance(start_date, date) else start_date,
-                end_date.isoformat() if isinstance(end_date, date) else end_date,
-                datetime.now().isoformat(),
-                (datetime.now() + timedelta(days=30)).isoformat()  # Ссылка действует 30 дней
-            ))
-            await conn.commit()
+                VALUES (:share_token, :user_id, :period, :start_date, :end_date, :created_at, :expires_at)
+                ON CONFLICT (share_token) DO UPDATE SET
+                    user_id = EXCLUDED.user_id,
+                    period = EXCLUDED.period,
+                    start_date = EXCLUDED.start_date,
+                    end_date = EXCLUDED.end_date,
+                    created_at = EXCLUDED.created_at,
+                    expires_at = EXCLUDED.expires_at
+            """), {
+                "share_token": share_token,
+                "user_id": user_id,
+                "period": period,
+                "start_date": start_date.isoformat() if isinstance(start_date, date) else start_date,
+                "end_date": end_date.isoformat() if isinstance(end_date, date) else end_date,
+                "created_at": datetime.now().isoformat(),
+                "expires_at": (datetime.now() + timedelta(days=30)).isoformat()  # Ссылка действует 30 дней
+            })
+            await session.commit()
         
         # Формируем публичную ссылку
         base_url = "https://your-domain.com"  # Замените на ваш домен
@@ -2092,55 +2099,50 @@ async def create_diary_share(
 async def get_shared_diary(share_token: str):
     """Получение публичного дневника по токену"""
     try:
-        # Импортируем функции из bot.py для работы с базой данных
+        # Импортируем настройки базы данных из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-        from bot import get_db_connection
+        from bot import async_session
         
-        async with get_db_connection() as conn:
+        async with async_session() as session:
             # Проверяем существование и валидность токена
-            cursor = await conn.execute("""
+            result = await session.execute(text("""
                 SELECT user_id, period, start_date, end_date, expires_at
                 FROM diary_shares 
-                WHERE share_token = ? AND expires_at > ?
-            """, (share_token, datetime.now().isoformat()))
+                WHERE share_token = :share_token AND expires_at > :current_time
+            """), {
+                "share_token": share_token,
+                "current_time": datetime.now().isoformat()
+            })
             
-            share_info = await cursor.fetchone()
+            share_info = result.fetchone()
             if not share_info:
                 raise HTTPException(status_code=404, detail="Ссылка не найдена или истекла")
             
             user_id, period, start_date, end_date, expires_at = share_info
             
             # Получаем данные дневника за указанный период
-            cursor = await conn.execute("""
-                SELECT date, total_calories, total_protein, total_fat, total_carbs, total_fiber
-                FROM UserHistory 
-                WHERE user_id = ? AND type = 'daily_summary' 
-                AND date BETWEEN ? AND ?
-                ORDER BY date DESC
-            """, (user_id, start_date, end_date))
-            
-            daily_summaries = await cursor.fetchall()
-            
-            # Получаем детальные данные о блюдах
-            cursor = await conn.execute("""
-                SELECT timestamp, prompt, data
-                FROM UserHistory 
-                WHERE user_id = ? AND type = 'meal_entry'
-                AND date(timestamp) BETWEEN ? AND ?
+            result = await session.execute(text("""
+                SELECT timestamp, prompt, response, data, compressed_image
+                FROM user_history 
+                WHERE user_id = :user_id AND type IN ('food', 'text')
+                AND DATE(timestamp) BETWEEN :start_date AND :end_date
                 ORDER BY timestamp DESC
-            """, (user_id, start_date, end_date))
+            """), {
+                "user_id": user_id,
+                "start_date": start_date,
+                "end_date": end_date
+            })
             
-            meal_entries = await cursor.fetchall()
+            meal_entries = result.fetchall()
             
             # Получаем информацию о пользователе
-            cursor = await conn.execute("""
-                SELECT data FROM UserHistory 
-                WHERE user_id = ? AND type = 'profile_update'
-                ORDER BY timestamp DESC LIMIT 1
-            """, (user_id,))
+            result = await session.execute(text("""
+                SELECT data FROM user_data 
+                WHERE user_id = :user_id
+            """), {"user_id": user_id})
             
-            profile_row = await cursor.fetchone()
-            profile_data = json.loads(profile_row[0]) if profile_row else {}
+            profile_row = result.fetchone()
+            profile_data = profile_row[0] if profile_row else {}
             
         # Формируем ответ
         diary_data = {
@@ -2156,22 +2158,13 @@ async def get_shared_diary(share_token: str):
                 "end_date": end_date,
                 "period_type": period
             },
-            "daily_summaries": [
-                {
-                    "date": row[0],
-                    "total_calories": row[1],
-                    "total_protein": row[2],
-                    "total_fat": row[3],
-                    "total_carbs": row[4],
-                    "total_fiber": row[5]
-                }
-                for row in daily_summaries
-            ],
             "meal_entries": [
                 {
-                    "timestamp": row[0],
+                    "timestamp": row[0].isoformat() if row[0] else None,
                     "prompt": row[1],
-                    "data": json.loads(row[2]) if row[2] else {}
+                    "response": row[2],
+                    "data": row[3] if row[3] else {},
+                    "image": row[4]
                 }
                 for row in meal_entries
             ],
