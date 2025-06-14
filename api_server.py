@@ -1891,68 +1891,62 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
             # Проверяем является ли запись последней (самой новой)
             is_latest_entry = weight_entries[0].timestamp.isoformat() == timestamp if weight_entries else False
             
+            print(f"DEBUG: Удаляемая запись timestamp: {timestamp}")
+            print(f"DEBUG: Найденная запись timestamp: {entry_to_delete.timestamp.isoformat()}")
+            print(f"DEBUG: Это последняя запись: {is_latest_entry}")
+            print(f"DEBUG: Всего записей веса: {len(weight_entries)}")
+            
             restored_weight = None
             
             # Если это последняя запись и есть предыдущие записи
             if is_latest_entry and len(weight_entries) > 1:
-                # Удаляем запись из базы данных СНАЧАЛА
+                print(f"DEBUG: Ищем предыдущую запись среди {len(weight_entries)} записей")
+                
+                # Находим предыдущую запись ДО удаления (вторую в списке)
+                previous_entry = weight_entries[1]
+                print(f"DEBUG: Предыдущая запись timestamp: {previous_entry.timestamp}")
+                print(f"DEBUG: Предыдущая запись data: {previous_entry.data}")
+                
+                # Извлекаем вес из предыдущей записи
+                import re
+                
+                # Сначала пытаемся извлечь из data
+                if previous_entry.data:
+                    try:
+                        data_dict = previous_entry.data if isinstance(previous_entry.data, dict) else {}
+                        restored_weight = data_dict.get("weight")
+                        print(f"DEBUG: Вес из data предыдущей записи: {restored_weight}")
+                    except Exception as e:
+                        print(f"DEBUG: Ошибка извлечения из data: {e}")
+                
+                # Если не нашли в data, пытаемся извлечь из prompt
+                if restored_weight is None:
+                    weight_match = re.search(r'(\d+(?:\.\d+)?)', previous_entry.prompt or "")
+                    if weight_match:
+                        restored_weight = float(weight_match.group(1))
+                        print(f"DEBUG: Вес из prompt предыдущей записи: {restored_weight}")
+                
+                print(f"DEBUG: Итоговый восстановленный вес: {restored_weight}")
+                
+                if restored_weight:
+                    # Обновляем текущий вес в профиле пользователя
+                    current_data["weight"] = restored_weight
+                    await update_user_data(user_id, current_data)
+                    print(f"DEBUG: Обновили вес пользователя на: {restored_weight}")
+                
+                # Удаляем запись из базы данных ПОСЛЕ получения предыдущей
                 await session.execute(
                     sql_delete(UserHistory).where(UserHistory.id == entry_to_delete.id)
                 )
                 await session.commit()
-                
-                # Теперь получаем оставшиеся записи веса (без удаленной)
-                result_remaining = await session.execute(
-                    select(UserHistory).where(
-                        UserHistory.user_id == user_id,
-                        UserHistory.type.in_(["weight", "weight_update"])
-                    ).order_by(UserHistory.timestamp.desc())
-                )
-                remaining_entries = result_remaining.scalars().all()
-                
-                # Если есть оставшиеся записи, берем самую новую (первую в списке)
-                if remaining_entries:
-                    latest_remaining = remaining_entries[0]
-                    
-                    # Извлекаем вес из prompt или data предыдущей записи
-                    import re
-                    restored_weight = None
-                    
-                    print(f"DEBUG: Обрабатываем запись для восстановления веса:")
-                    print(f"DEBUG: Timestamp: {latest_remaining.timestamp}")
-                    print(f"DEBUG: Type: {latest_remaining.type}")
-                    print(f"DEBUG: Prompt: {latest_remaining.prompt}")
-                    print(f"DEBUG: Data: {latest_remaining.data}")
-                    
-                    # Сначала пытаемся извлечь из data
-                    if latest_remaining.data:
-                        try:
-                            data_dict = latest_remaining.data if isinstance(latest_remaining.data, dict) else {}
-                            restored_weight = data_dict.get("weight")
-                            print(f"DEBUG: Вес из data: {restored_weight}")
-                        except Exception as e:
-                            print(f"DEBUG: Ошибка извлечения из data: {e}")
-                    
-                    # Если не нашли в data, пытаемся извлечь из prompt
-                    if restored_weight is None:
-                        weight_match = re.search(r'(\d+(?:\.\d+)?)', latest_remaining.prompt or "")
-                        if weight_match:
-                            restored_weight = float(weight_match.group(1))
-                            print(f"DEBUG: Вес из prompt: {restored_weight}")
-                    
-                    print(f"DEBUG: Итоговый восстановленный вес: {restored_weight}")
-                    
-                    if restored_weight:
-                        # Обновляем текущий вес в профиле пользователя
-                        current_data["weight"] = restored_weight
-                        await update_user_data(user_id, current_data)
-                        print(f"DEBUG: Обновили вес пользователя на: {restored_weight}")
+                print(f"DEBUG: Удалили запись из базы данных")
             else:
                 # Если это не последняя запись, просто удаляем
                 await session.execute(
                     sql_delete(UserHistory).where(UserHistory.id == entry_to_delete.id)
                 )
                 await session.commit()
+                print(f"DEBUG: Удалили не-последнюю запись из базы данных")
         
         # Очищаем кэш пользователя
         api_cache.invalidate_user_cache(user_id)
