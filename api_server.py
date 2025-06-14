@@ -1896,43 +1896,71 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
             print(f"DEBUG: Это последняя запись: {is_latest_entry}")
             print(f"DEBUG: Всего записей веса: {len(weight_entries)}")
             
+            # Выводим все записи для отладки
+            for i, entry in enumerate(weight_entries):
+                weight_from_data = None
+                if entry.data and isinstance(entry.data, dict):
+                    weight_from_data = entry.data.get("weight")
+                print(f"DEBUG: Запись {i}: timestamp={entry.timestamp.isoformat()}, weight={weight_from_data}")
+            
             restored_weight = None
             
             # Если это последняя запись и есть предыдущие записи
             if is_latest_entry and len(weight_entries) > 1:
                 print(f"DEBUG: Ищем предыдущую запись среди {len(weight_entries)} записей")
                 
-                # Находим предыдущую запись ДО удаления (вторую в списке)
-                previous_entry = weight_entries[1]
-                print(f"DEBUG: Предыдущая запись timestamp: {previous_entry.timestamp}")
-                print(f"DEBUG: Предыдущая запись data: {previous_entry.data}")
+                # Получаем вес удаляемой записи
+                deleted_weight = None
+                if entry_to_delete.data and isinstance(entry_to_delete.data, dict):
+                    deleted_weight = entry_to_delete.data.get("weight")
                 
-                # Извлекаем вес из предыдущей записи
-                import re
+                print(f"DEBUG: Вес удаляемой записи: {deleted_weight}")
                 
-                # Сначала пытаемся извлечь из data
-                if previous_entry.data:
-                    try:
-                        data_dict = previous_entry.data if isinstance(previous_entry.data, dict) else {}
-                        restored_weight = data_dict.get("weight")
-                        print(f"DEBUG: Вес из data предыдущей записи: {restored_weight}")
-                    except Exception as e:
-                        print(f"DEBUG: Ошибка извлечения из data: {e}")
+                # Ищем предыдущую запись с ДРУГИМ весом
+                previous_entry = None
+                for entry in weight_entries[1:]:  # Пропускаем первую (удаляемую) запись
+                    entry_weight = None
+                    if entry.data and isinstance(entry.data, dict):
+                        entry_weight = entry.data.get("weight")
+                    
+                    # Если нашли запись с другим весом - это наша предыдущая запись
+                    if entry_weight is not None and entry_weight != deleted_weight:
+                        previous_entry = entry
+                        print(f"DEBUG: Найдена предыдущая запись с другим весом: {entry_weight}")
+                        break
                 
-                # Если не нашли в data, пытаемся извлечь из prompt
-                if restored_weight is None:
-                    weight_match = re.search(r'(\d+(?:\.\d+)?)', previous_entry.prompt or "")
-                    if weight_match:
-                        restored_weight = float(weight_match.group(1))
-                        print(f"DEBUG: Вес из prompt предыдущей записи: {restored_weight}")
-                
-                print(f"DEBUG: Итоговый восстановленный вес: {restored_weight}")
-                
-                if restored_weight:
-                    # Обновляем текущий вес в профиле пользователя
-                    current_data["weight"] = restored_weight
-                    await update_user_data(user_id, current_data)
-                    print(f"DEBUG: Обновили вес пользователя на: {restored_weight}")
+                if previous_entry:
+                    print(f"DEBUG: Предыдущая запись timestamp: {previous_entry.timestamp}")
+                    print(f"DEBUG: Предыдущая запись data: {previous_entry.data}")
+                    
+                    # Извлекаем вес из предыдущей записи
+                    import re
+                    
+                    # Сначала пытаемся извлечь из data
+                    if previous_entry.data:
+                        try:
+                            data_dict = previous_entry.data if isinstance(previous_entry.data, dict) else {}
+                            restored_weight = data_dict.get("weight")
+                            print(f"DEBUG: Вес из data предыдущей записи: {restored_weight}")
+                        except Exception as e:
+                            print(f"DEBUG: Ошибка извлечения из data: {e}")
+                    
+                    # Если не нашли в data, пытаемся извлечь из prompt
+                    if restored_weight is None:
+                        weight_match = re.search(r'(\d+(?:\.\d+)?)', previous_entry.prompt or "")
+                        if weight_match:
+                            restored_weight = float(weight_match.group(1))
+                            print(f"DEBUG: Вес из prompt предыдущей записи: {restored_weight}")
+                    
+                    print(f"DEBUG: Итоговый восстановленный вес: {restored_weight}")
+                    
+                    if restored_weight:
+                        # Обновляем текущий вес в профиле пользователя
+                        current_data["weight"] = restored_weight
+                        await update_user_data(user_id, current_data)
+                        print(f"DEBUG: Обновили вес пользователя на: {restored_weight}")
+                else:
+                    print(f"DEBUG: Не найдена предыдущая запись с другим весом")
                 
                 # Удаляем запись из базы данных ПОСЛЕ получения предыдущей
                 await session.execute(
