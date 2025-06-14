@@ -1888,8 +1888,28 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
             if not entry_to_delete:
                 raise HTTPException(status_code=404, detail="Запись не найдена")
             
-            # Проверяем является ли запись последней (самой новой)
-            is_latest_entry = weight_entries[0].timestamp.isoformat() == timestamp if weight_entries else False
+            # Если удаляемая запись не содержит веса, ищем связанную запись с весом
+            if entry_to_delete.data is None or not entry_to_delete.data.get("weight"):
+                print(f"DEBUG: Удаляемая запись не содержит веса, ищем связанную запись")
+                
+                # Ищем запись с весом, созданную примерно в то же время (в пределах 1 секунды)
+                target_time = entry_to_delete.timestamp
+                for entry in weight_entries:
+                    if (entry.data and entry.data.get("weight") and 
+                        abs((entry.timestamp - target_time).total_seconds()) < 1):
+                        print(f"DEBUG: Найдена связанная запись с весом: {entry.data.get('weight')}")
+                        entry_to_delete = entry
+                        break
+            
+            # Проверяем является ли запись последней (самой новой) среди записей с весом
+            latest_weight_entry = None
+            for entry in weight_entries:
+                if entry.data and entry.data.get("weight"):
+                    latest_weight_entry = entry
+                    break
+            
+            is_latest_entry = (latest_weight_entry and 
+                             latest_weight_entry.id == entry_to_delete.id) if latest_weight_entry else False
             
             print(f"DEBUG: Удаляемая запись timestamp: {timestamp}")
             print(f"DEBUG: Найденная запись timestamp: {entry_to_delete.timestamp.isoformat()}")
