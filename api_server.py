@@ -1954,6 +1954,7 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
                             data_dict = previous_entry.data if isinstance(previous_entry.data, dict) else {}
                             restored_weight = data_dict.get("weight")
                         except Exception as e:
+                            pass
                     
                     # Если не нашли в data, пытаемся извлечь из prompt
                     if restored_weight is None:
@@ -1961,12 +1962,12 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
                         if weight_match:
                             restored_weight = float(weight_match.group(1))
                     
-                    
                     if restored_weight:
                         # Обновляем текущий вес в профиле пользователя
                         current_data["weight"] = restored_weight
                         await update_user_data(user_id, current_data)
                 else:
+                    pass
                 
                 # Удаляем запись из базы данных ПОСЛЕ получения предыдущей
                 entries_to_delete = []
