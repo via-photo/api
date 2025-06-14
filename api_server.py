@@ -12,6 +12,7 @@ import re
 from functools import lru_cache
 import hashlib
 import time
+from sqlalchemy import text
 
 # Загрузка переменных окружения
 load_dotenv()
