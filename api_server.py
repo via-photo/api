@@ -2037,6 +2037,10 @@ async def create_diary_share(
             start_date = end_date - timedelta(days=30)
         # Для custom используем переданные даты
         
+        # Импортируем функции из bot.py для работы с базой данных
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import get_db_connection
+        
         # Создаем таблицу для хранения публичных ссылок, если её нет
         async with get_db_connection() as conn:
             await conn.execute("""
@@ -2068,7 +2072,7 @@ async def create_diary_share(
             await conn.commit()
         
         # Формируем публичную ссылку
-        base_url = "https://viaphoto.netlify.app/"
+        base_url = "https://your-domain.com"  # Замените на ваш домен
         share_url = f"{base_url}/shared-diary/{share_token}"
         
         return {
@@ -2080,7 +2084,7 @@ async def create_diary_share(
         }
         
     except Exception as e:
-        logger.error(f"Ошибка при создании публичной ссылки для пользователя {user_id}: {e}")
+        print(f"Ошибка при создании публичной ссылки для пользователя {user_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при создании публичной ссылки: {str(e)}")
 
 
@@ -2088,6 +2092,10 @@ async def create_diary_share(
 async def get_shared_diary(share_token: str):
     """Получение публичного дневника по токену"""
     try:
+        # Импортируем функции из bot.py для работы с базой данных
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import get_db_connection
+        
         async with get_db_connection() as conn:
             # Проверяем существование и валидность токена
             cursor = await conn.execute("""
@@ -2175,6 +2183,6 @@ async def get_shared_diary(share_token: str):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Ошибка при получении публичного дневника {share_token}: {e}")
+        print(f"Ошибка при получении публичного дневника {share_token}: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении дневника: {str(e)}")
 
