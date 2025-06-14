@@ -1895,23 +1895,39 @@ async def delete_weight_entry(user_id: str, timestamp: str = Query(...), api_key
             
             # Если это последняя запись и есть предыдущие записи
             if is_latest_entry and len(weight_entries) > 1:
-                # Находим предыдущую запись веса (вторую в списке, так как первая - удаляемая)
-                previous_entry = weight_entries[1]
+                # Удаляем запись из базы данных СНАЧАЛА
+                await session.execute(
+                    sql_delete(UserHistory).where(UserHistory.id == entry_to_delete.id)
+                )
+                await session.commit()
                 
-                # Извлекаем вес из prompt предыдущей записи
-                import re
-                weight_match = re.search(r'(\d+(?:\.\d+)?)', previous_entry.prompt or "")
-                if weight_match:
-                    restored_weight = float(weight_match.group(1))
-                    # Обновляем текущий вес в профиле пользователя
-                    current_data["weight"] = restored_weight
-                    await update_user_data(user_id, current_data)
-            
-            # Удаляем запись из базы данных
-            await session.execute(
-                sql_delete(UserHistory).where(UserHistory.id == entry_to_delete.id)
-            )
-            await session.commit()
+                # Теперь получаем оставшиеся записи веса (без удаленной)
+                result_remaining = await session.execute(
+                    select(UserHistory).where(
+                        UserHistory.user_id == user_id,
+                        UserHistory.type.in_(["weight", "weight_update"])
+                    ).order_by(UserHistory.timestamp.desc())
+                )
+                remaining_entries = result_remaining.scalars().all()
+                
+                # Если есть оставшиеся записи, берем самую новую (первую в списке)
+                if remaining_entries:
+                    latest_remaining = remaining_entries[0]
+                    
+                    # Извлекаем вес из prompt предыдущей записи
+                    import re
+                    weight_match = re.search(r'(\d+(?:\.\d+)?)', latest_remaining.prompt or "")
+                    if weight_match:
+                        restored_weight = float(weight_match.group(1))
+                        # Обновляем текущий вес в профиле пользователя
+                        current_data["weight"] = restored_weight
+                        await update_user_data(user_id, current_data)
+            else:
+                # Если это не последняя запись, просто удаляем
+                await session.execute(
+                    sql_delete(UserHistory).where(UserHistory.id == entry_to_delete.id)
+                )
+                await session.commit()
         
         # Очищаем кэш пользователя
         api_cache.invalidate_user_cache(user_id)
