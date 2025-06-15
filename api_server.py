@@ -2080,7 +2080,7 @@ async def create_diary_share(
             await session.commit()
         
         # Формируем публичную ссылку
-        base_url = "https://viaphoto.netlify.app/"
+        base_url = "https://viaphoto.netlify.app"
         share_url = f"{base_url}/shared-diary/{share_token}"
         
         return {
@@ -2126,7 +2126,7 @@ async def get_shared_diary(share_token: str):
                 SELECT timestamp, prompt, response, data, compressed_image
                 FROM user_history 
                 WHERE user_id = :user_id AND type IN ('food', 'text')
-                AND DATE(timestamp) BETWEEN :start_date AND :end_date
+                AND timestamp::date BETWEEN :start_date::date AND :end_date::date
                 ORDER BY timestamp DESC
             """), {
                 "user_id": user_id,
