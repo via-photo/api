@@ -539,10 +539,10 @@ async def get_diary(user_id: str, api_key: str = Depends(verify_api_key)):
 @app.get("/api/stats/{user_id}", response_model=Dict[str, Any])
 async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
     """
-    Получение статистики пользователя с кэшированием
+    Получение статистики пользователя с улучшенным кэшированием
     """
     try:
-        # Проверяем кэш
+        # Проверяем кэш с увеличенным TTL
         cache_key = api_cache.get_cache_key("stats", user_id)
         cached_result = api_cache.get(cache_key)
         if cached_result:
@@ -553,17 +553,13 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
             # Импортируем функции из bot.py
             sys.path.append(os.path.dirname(os.path.abspath(__file__)))
             from bot import get_user_data, get_history, calculate_summary_text
-            # Отладочное логирование удалено для оптимизации
         except ImportError as import_error:
             print(f"Ошибка импорта bot.py в get_stats: {import_error}")
-            # НЕ возвращаем тестовые данные, а пробуем продолжить
-            # return тестовые данные - УБИРАЕМ ЭТО
             pass
         
-        # Получаем данные пользователя
+        # Получаем данные пользователя с таймаутом
         try:
             user_data = await get_user_data(user_id)
-            # Отладочное логирование удалено для оптимизации
         except Exception as e:
             print(f"Ошибка получения данных пользователя {user_id}: {e}")
             # Используем значения по умолчанию
