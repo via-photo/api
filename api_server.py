@@ -2099,13 +2099,19 @@ async def create_diary_share(
 @app.get("/shared-diary/{share_token}")
 async def get_shared_diary(share_token: str):
     """Получение публичного дневника по токену"""
+    print(f"🔍 Запрос публичного дневника для токена: {share_token}")
+    
     try:
+        print("📡 Подключение к базе данных...")
         # Импортируем настройки базы данных из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import async_session
         
         async with async_session() as session:
+            print("✅ Подключение к БД установлено")
+            
             # Проверяем существование и валидность токена
+            print(f"🔎 Поиск токена в базе данных: {share_token}")
             result = await session.execute(text("""
                 SELECT user_id, period, start_date, end_date, expires_at
                 FROM diary_shares 
@@ -2116,18 +2122,26 @@ async def get_shared_diary(share_token: str):
             })
             
             share_info = result.fetchone()
+            print(f"📊 Результат поиска токена: {share_info}")
+            
             if not share_info:
+                print("❌ Токен не найден или истек")
                 raise HTTPException(status_code=404, detail="Ссылка не найдена или истекла")
             
             user_id, period, start_date, end_date, expires_at = share_info
+            print(f"👤 Найден пользователь: {user_id}, период: {period}, даты: {start_date} - {end_date}")
             
             # Преобразуем строки дат в объекты date
+            print("📅 Преобразование дат...")
             if isinstance(start_date, str):
                 start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+                print(f"📅 start_date преобразован: {start_date}")
             if isinstance(end_date, str):
                 end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+                print(f"📅 end_date преобразован: {end_date}")
             
             # Получаем данные дневника за указанный период
+            print(f"📖 Загрузка записей дневника для пользователя {user_id}...")
             result = await session.execute(text("""
                 SELECT timestamp, prompt, response, data, compressed_image
                 FROM user_history 
@@ -2141,8 +2155,10 @@ async def get_shared_diary(share_token: str):
             })
             
             meal_entries = result.fetchall()
+            print(f"📝 Найдено записей: {len(meal_entries)}")
             
             # Получаем информацию о пользователе
+            print(f"👤 Загрузка профиля пользователя {user_id}...")
             result = await session.execute(text("""
                 SELECT data FROM user_data 
                 WHERE user_id = :user_id
@@ -2150,7 +2166,9 @@ async def get_shared_diary(share_token: str):
             
             profile_row = result.fetchone()
             profile_data = profile_row[0] if profile_row else {}
+            print(f"👤 Профиль загружен: {bool(profile_data)}")
             
+        print("🔄 Формирование ответа...")
         # Формируем ответ
         diary_data = {
             "user_info": {
@@ -2180,9 +2198,13 @@ async def get_shared_diary(share_token: str):
         
         return diary_data
         
-    except HTTPException:
+    except HTTPException as he:
+        print(f"❌ HTTP ошибка: {he.detail}")
         raise
     except Exception as e:
-        print(f"Ошибка при получении публичного дневника {share_token}: {e}")
+        print(f"💥 Критическая ошибка при получении публичного дневника {share_token}: {e}")
+        print(f"💥 Тип ошибки: {type(e)}")
+        import traceback
+        print(f"💥 Трейс: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении дневника: {str(e)}")
 
