@@ -2121,6 +2121,13 @@ async def get_shared_diary(share_token: str):
             
             user_id, period, start_date, end_date, expires_at = share_info
             
+            # Преобразуем строки дат в объекты date
+            from datetime import datetime
+            if isinstance(start_date, str):
+                start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+            if isinstance(end_date, str):
+                end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+            
             # Получаем данные дневника за указанный период
             result = await session.execute(text("""
                 SELECT timestamp, prompt, response, data, compressed_image
