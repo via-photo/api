@@ -2080,7 +2080,7 @@ async def create_diary_share(
             await session.commit()
         
         # Формируем публичную ссылку
-        base_url = "https://your-domain.com"  # Замените на ваш домен
+        base_url = "https://viaphoto.netlify.app/"
         share_url = f"{base_url}/shared-diary/{share_token}"
         
         return {
