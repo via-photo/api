@@ -2126,7 +2126,7 @@ async def get_shared_diary(share_token: str):
                 SELECT timestamp, prompt, response, data, compressed_image
                 FROM user_history 
                 WHERE user_id = :user_id AND type IN ('food', 'text')
-                AND timestamp::date BETWEEN :start_date::date AND :end_date::date
+                AND DATE(timestamp) BETWEEN :start_date AND :end_date
                 ORDER BY timestamp DESC
             """), {
                 "user_id": user_id,
