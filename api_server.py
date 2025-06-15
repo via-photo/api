@@ -539,10 +539,10 @@ async def get_diary(user_id: str, api_key: str = Depends(verify_api_key)):
 @app.get("/api/stats/{user_id}", response_model=Dict[str, Any])
 async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
     """
-    Получение статистики пользователя с улучшенным кэшированием
+    Получение статистики пользователя с кэшированием
     """
     try:
-        # Проверяем кэш с увеличенным TTL
+        # Проверяем кэш
         cache_key = api_cache.get_cache_key("stats", user_id)
         cached_result = api_cache.get(cache_key)
         if cached_result:
@@ -553,13 +553,17 @@ async def get_stats(user_id: str, api_key: str = Depends(verify_api_key)):
             # Импортируем функции из bot.py
             sys.path.append(os.path.dirname(os.path.abspath(__file__)))
             from bot import get_user_data, get_history, calculate_summary_text
+            # Отладочное логирование удалено для оптимизации
         except ImportError as import_error:
             print(f"Ошибка импорта bot.py в get_stats: {import_error}")
+            # НЕ возвращаем тестовые данные, а пробуем продолжить
+            # return тестовые данные - УБИРАЕМ ЭТО
             pass
         
-        # Получаем данные пользователя с таймаутом
+        # Получаем данные пользователя
         try:
             user_data = await get_user_data(user_id)
+            # Отладочное логирование удалено для оптимизации
         except Exception as e:
             print(f"Ошибка получения данных пользователя {user_id}: {e}")
             # Используем значения по умолчанию
@@ -1230,175 +1234,7 @@ async def recalculate_user_targets(user_id: str, api_key: str = Depends(verify_a
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Добавляем новый batch API эндпоинт для загрузки всех данных сразу
-@app.get("/api/batch-data/{user_id}")
-async def get_batch_data(
-    user_id: str, 
-    date_str: Optional[str] = None,
-    include_diary: bool = True,
-    include_stats: bool = True, 
-    include_profile: bool = True,
-    api_key: str = Depends(verify_api_key)
-):
-    """
-    Batch API эндпоинт для загрузки всех необходимых данных одним запросом
-    Значительно уменьшает количество HTTP запросов и вероятность ошибок
-    """
-    try:
-        result = {"status": "success", "data": {}}
-        
-        # Проверяем кэш для batch запроса
-        cache_key = api_cache.get_cache_key(
-            "batch", user_id, 
-            date=date_str or "today",
-            diary=include_diary,
-            stats=include_stats, 
-            profile=include_profile
-        )
-        cached_result = api_cache.get(cache_key)
-        if cached_result:
-            return cached_result
-        
-        # Импортируем функции из bot.py
-        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-        from bot import get_user_data, get_history
-        
-        # Загружаем данные параллельно
-        tasks = []
-        
-        if include_diary:
-            tasks.append(("diary", get_diary_data_internal(user_id, date_str)))
-        
-        if include_stats:
-            tasks.append(("stats", get_stats_internal(user_id)))
-            
-        if include_profile:
-            tasks.append(("profile", get_profile_internal(user_id)))
-        
-        # Выполняем все запросы параллельно
-        import asyncio
-        results = await asyncio.gather(*[task[1] for task in tasks], return_exceptions=True)
-        
-        # Собираем результаты
-        for i, (key, _) in enumerate(tasks):
-            if isinstance(results[i], Exception):
-                print(f"Ошибка при загрузке {key}: {results[i]}")
-                result["data"][key] = {"error": str(results[i])}
-            else:
-                result["data"][key] = results[i]
-        
-        # Кэшируем результат на 2 минуты
-        api_cache.set(cache_key, result, ttl=120)
-        
-        return result
-        
-    except Exception as e:
-        print(f"Ошибка в batch API: {e}")
-        raise HTTPException(status_code=500, detail=f"Ошибка при загрузке данных: {str(e)}")
-
-# Внутренние функции для batch API
-async def get_diary_data_internal(user_id: str, date_str: Optional[str] = None):
-    """Внутренняя функция для получения данных дневника"""
-    try:
-        from bot import get_user_data, get_history
-        
-        # Определяем целевую дату
-        if date_str:
-            target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        else:
-            target_date = datetime.now().date()
-        
-        # Получаем данные пользователя и историю
-        user_data = await get_user_data(user_id)
-        history = await get_history(user_id, target_date.strftime("%Y-%m-%d"))
-        
-        # Обрабатываем данные (упрощенная версия)
-        meals = []
-        total_calories = 0
-        total_protein = 0
-        total_fat = 0
-        total_carb = 0
-        total_fiber = 0
-        
-        for entry in history:
-            if entry.get('type') == 'food' and entry.get('data'):
-                meal_data = entry['data']
-                meals.append({
-                    "id": entry.get('id', len(meals) + 1),
-                    "time": entry.get('timestamp', '').split('T')[1][:5] if 'T' in entry.get('timestamp', '') else '',
-                    "description": entry.get('prompt', ''),
-                    "calories": meal_data.get('calories', 0),
-                    "protein": meal_data.get('protein', 0),
-                    "fat": meal_data.get('fat', 0),
-                    "carb": meal_data.get('carb', 0),
-                    "fiber": meal_data.get('fiber', 0)
-                })
-                
-                total_calories += meal_data.get('calories', 0)
-                total_protein += meal_data.get('protein', 0)
-                total_fat += meal_data.get('fat', 0)
-                total_carb += meal_data.get('carb', 0)
-                total_fiber += meal_data.get('fiber', 0)
-        
-        return {
-            "date": target_date.strftime("%Y-%m-%d"),
-            "total_calories": round(total_calories, 1),
-            "total_protein": round(total_protein, 1),
-            "total_fat": round(total_fat, 1),
-            "total_carb": round(total_carb, 1),
-            "total_fiber": round(total_fiber, 1),
-            "meals": meals,
-            "targets": {
-                "calories": user_data.get('target_kcal', 2000),
-                "protein": user_data.get('target_protein', 100),
-                "fat": user_data.get('target_fat', 67),
-                "carb": user_data.get('target_carb', 250),
-                "fiber": user_data.get('target_fiber', 25)
-            }
-        }
-        
-    except Exception as e:
-        print(f"Ошибка в get_diary_data_internal: {e}")
-        raise e
-
-async def get_stats_internal(user_id: str):
-    """Внутренняя функция для получения статистики"""
-    try:
-        from bot import get_user_data
-        user_data = await get_user_data(user_id)
-        
-        return {
-            "weekly_avg_calories": user_data.get('weekly_avg_calories', 0),
-            "weekly_avg_protein": user_data.get('weekly_avg_protein', 0),
-            "streak_days": user_data.get('streak_days', 0),
-            "total_entries": user_data.get('total_entries', 0)
-        }
-    except Exception as e:
-        print(f"Ошибка в get_stats_internal: {e}")
-        return {"error": str(e)}
-
-async def get_profile_internal(user_id: str):
-    """Внутренняя функция для получения профиля"""
-    try:
-        from bot import get_user_data
-        user_data = await get_user_data(user_id)
-        
-        return {
-            "name": user_data.get('name', ''),
-            "age": user_data.get('age'),
-            "height": user_data.get('height'),
-            "weight": user_data.get('weight'),
-            "goal": user_data.get('goal'),
-            "activity_level": user_data.get('activity_level'),
-            "target_kcal": user_data.get('target_kcal', 2000),
-            "target_protein": user_data.get('target_protein', 100),
-            "target_fat": user_data.get('target_fat', 67),
-            "target_carb": user_data.get('target_carb', 250),
-            "target_fiber": user_data.get('target_fiber', 25)
-        }
-    except Exception as e:
-        print(f"Ошибка в get_profile_internal: {e}")
-        return {"error": str(e)}
+# НОВЫЙ эндпоинт для детального дневника с навигацией по датам
 @app.get("/api/diary-data/{user_id}")
 async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: str = Depends(verify_api_key)):
     """
