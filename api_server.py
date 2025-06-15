@@ -2196,7 +2196,8 @@ async def get_shared_diary(share_token: str):
             "expires_at": expires_at
         }
         
-        return diary_data
+        print(f"✅ Ответ сформирован успешно!")
+        return {"status": "success", "data": diary_data}
         
     except HTTPException as he:
         print(f"❌ HTTP ошибка: {he.detail}")
