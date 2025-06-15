@@ -2109,11 +2109,8 @@ async def get_shared_diary(share_token: str):
             result = await session.execute(text("""
                 SELECT user_id, period, start_date, end_date, expires_at
                 FROM diary_shares 
-                WHERE share_token = :share_token AND expires_at > :current_time
-            """), {
-                "share_token": share_token,
-                "current_time": datetime.now().isoformat()
-            })
+                WHERE share_token = $1 AND expires_at > $2
+            """), [share_token, datetime.now().isoformat()])
             
             share_info = result.fetchone()
             if not share_info:
@@ -2125,22 +2122,18 @@ async def get_shared_diary(share_token: str):
             result = await session.execute(text("""
                 SELECT timestamp, prompt, response, data, compressed_image
                 FROM user_history 
-                WHERE user_id = :user_id AND type IN ('food', 'text')
-                AND timestamp::date BETWEEN :start_date::date AND :end_date::date
+                WHERE user_id = $1 AND type IN ('food', 'text')
+                AND timestamp::date BETWEEN $2::date AND $3::date
                 ORDER BY timestamp DESC
-            """), {
-                "user_id": user_id,
-                "start_date": start_date,
-                "end_date": end_date
-            })
+            """), [user_id, start_date, end_date])
             
             meal_entries = result.fetchall()
             
             # Получаем информацию о пользователе
             result = await session.execute(text("""
                 SELECT data FROM user_data 
-                WHERE user_id = :user_id
-            """), {"user_id": user_id})
+                WHERE user_id = $1
+            """), [user_id])
             
             profile_row = result.fetchone()
             profile_data = profile_row[0] if profile_row else {}
