@@ -2233,7 +2233,7 @@ async def get_shared_weight(share_token: str, period: str = "month"):
                 WHERE share_token = :share_token AND expires_at > :current_time
             """), {
                 "share_token": share_token,
-                "current_time": datetime.now(timezone.utc)
+                "current_time": datetime.now(timezone.utc).isoformat()
             })
             
             share_data = result.fetchone()
