@@ -2209,3 +2209,144 @@ async def get_shared_diary(share_token: str):
         print(f"💥 Трейс: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении дневника: {str(e)}")
 
+
+
+@app.get("/weight/{share_token}")
+async def get_shared_weight(share_token: str, period: str = "month"):
+    """Получение данных о весе для публичного дневника по токену"""
+    print(f"⚖️ Запрос данных о весе для токена: {share_token}, период: {period}")
+    
+    try:
+        print("📡 Подключение к базе данных...")
+        # Импортируем настройки базы данных из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import async_session, get_user_data, get_history
+        
+        async with async_session() as session:
+            print("✅ Подключение к БД установлено")
+            
+            # Проверяем существование и валидность токена
+            print(f"🔎 Поиск токена в базе данных: {share_token}")
+            result = await session.execute(text("""
+                SELECT user_id, period, start_date, end_date, expires_at
+                FROM diary_shares 
+                WHERE share_token = :share_token AND expires_at > :current_time
+            """), {
+                "share_token": share_token,
+                "current_time": datetime.now(timezone.utc)
+            })
+            
+            share_data = result.fetchone()
+            if not share_data:
+                print(f"❌ Токен не найден или истек: {share_token}")
+                raise HTTPException(status_code=404, detail="Публичная ссылка не найдена или истекла")
+            
+            user_id = share_data[0]
+            print(f"✅ Токен валиден, пользователь: {user_id}")
+            
+            # Получаем данные пользователя
+            print(f"👤 Получение данных пользователя: {user_id}")
+            user_data = await get_user_data(user_id)
+            current_weight = user_data.get("weight")
+            goal_weight = user_data.get("goal")
+            
+            print(f"📊 Данные пользователя: вес={current_weight}, цель={goal_weight}")
+            
+            # Получаем историю
+            print(f"📚 Получение истории пользователя: {user_id}")
+            history = await get_history(user_id)
+            
+            # Фильтруем записи веса (включая новый тип weight_update)
+            weight_entries = [entry for entry in history if entry.get("type") in ["weight", "weight_update"]]
+            print(f"⚖️ Найдено записей о весе: {len(weight_entries)}")
+            
+            # Определяем период для фильтрации
+            now = datetime.now()
+            if period == "week":
+                start_date = now - timedelta(days=7)
+            elif period == "month":
+                start_date = now - timedelta(days=30)
+            elif period == "6months":
+                start_date = now - timedelta(days=180)
+            elif period == "year":
+                start_date = now - timedelta(days=365)
+            else:
+                start_date = now - timedelta(days=30)  # По умолчанию месяц
+            
+            print(f"📅 Фильтрация по периоду: с {start_date.strftime('%Y-%m-%d')} по {now.strftime('%Y-%m-%d')}")
+            
+            # Фильтруем записи по периоду и извлекаем вес из разных источников
+            filtered_entries = []
+            for entry in weight_entries:
+                entry_date = entry.get("timestamp")
+                if isinstance(entry_date, str):
+                    entry_date = datetime.fromisoformat(entry_date.replace('Z', '+00:00'))
+                
+                if entry_date >= start_date:
+                    # Извлекаем вес из разных источников
+                    weight = None
+                    note = ""
+                    
+                    # Пытаемся извлечь вес из prompt (для записей типа weight_update)
+                    if entry.get("type") == "weight_update":
+                        prompt = entry.get("prompt", "")
+                        import re
+                        weight_match = re.search(r'(\d+(?:\.\d+)?)\s*кг', prompt)
+                        if weight_match:
+                            weight = float(weight_match.group(1))
+                            note = "Взвешивание"
+                    
+                    # Если не нашли в prompt, пытаемся из data
+                    if weight is None:
+                        weight_data = entry.get("data", {})
+                        weight = weight_data.get("weight")
+                        if weight:
+                            note = "Запись о весе"
+                    
+                    # Пропускаем записи без валидного веса
+                    if weight is None or weight <= 0:
+                        continue
+                    
+                    filtered_entries.append({
+                        "date": entry_date.strftime("%Y-%m-%d"),
+                        "weight": weight,
+                        "note": note,
+                        "timestamp": entry_date.isoformat()
+                    })
+            
+            print(f"📊 Записей после фильтрации: {len(filtered_entries)}")
+            
+            # Сортируем по дате (новые сначала)
+            filtered_entries.sort(key=lambda x: x["timestamp"], reverse=True)
+            
+            # Вычисляем изменение веса
+            weight_change = None
+            if len(filtered_entries) >= 2:
+                latest_weight = filtered_entries[0]["weight"]
+                previous_weight = filtered_entries[1]["weight"]
+                if latest_weight and previous_weight:
+                    weight_change = round(latest_weight - previous_weight, 1)
+            
+            print(f"📈 Изменение веса: {weight_change}")
+            
+            response_data = {
+                "status": "success",
+                "data": {
+                    "entries": filtered_entries,
+                    "current_weight": current_weight,
+                    "goal_weight": goal_weight,
+                    "weight_change": weight_change,
+                    "period": period,
+                    "total_entries": len(filtered_entries)
+                }
+            }
+            
+            print(f"✅ Возвращаем данные о весе: {len(filtered_entries)} записей")
+            return response_data
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Ошибка при получении данных о весе: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении данных о весе: {str(e)}")
+
