@@ -2350,3 +2350,240 @@ async def get_shared_weight(share_token: str, period: str = "month"):
         print(f"❌ Ошибка при получении данных о весе: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении данных о весе: {str(e)}")
 
+
+
+# Модели для избранного
+class FavoriteRequest(BaseModel):
+    meal_id: int
+
+class FavoriteItem(BaseModel):
+    meal_id: int
+    description: str
+    time: str
+    calories: int
+    protein: int
+    fat: int
+    carb: int
+    fiber: float
+    image: Optional[str] = None
+    products: Optional[List[Dict[str, Any]]] = None
+    added_date: str
+
+# Endpoints для избранного
+@app.post("/favorites/{user_id}")
+async def add_favorite(user_id: str, request: FavoriteRequest):
+    """Добавить блюдо в избранное"""
+    try:
+        print(f"🌟 Добавление в избранное: пользователь {user_id}, блюдо {request.meal_id}")
+        
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import async_session, UserHistory
+        from sqlalchemy import select
+        
+        # Получаем данные о блюде из meal_entries
+        async with async_session() as session:
+            # Проверяем существование блюда
+            meal_result = await session.execute(
+                select(UserHistory).where(
+                    UserHistory.id == request.meal_id,
+                    UserHistory.user_id == user_id,
+                    UserHistory.type == "meal"
+                )
+            )
+            meal_data = meal_result.scalar_one_or_none()
+            
+            if not meal_data:
+                raise HTTPException(status_code=404, detail="Блюдо не найдено")
+            
+            # Проверяем, не добавлено ли уже в избранное
+            existing_result = await session.execute(
+                select(UserHistory).where(
+                    UserHistory.user_id == user_id,
+                    UserHistory.type == "favorite",
+                    UserHistory.data.contains(f'"meal_id": {request.meal_id}')
+                )
+            )
+            
+            if existing_result.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail="Блюдо уже в избранном")
+            
+            # Добавляем в избранное
+            favorite_data = {
+                "meal_id": request.meal_id,
+                "added_date": datetime.now(timezone.utc).isoformat()
+            }
+            
+            new_favorite = UserHistory(
+                user_id=user_id,
+                type="favorite",
+                data=json.dumps(favorite_data),
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+            session.add(new_favorite)
+            await session.commit()
+        
+        print(f"✅ Блюдо {request.meal_id} добавлено в избранное пользователя {user_id}")
+        
+        return {
+            "status": "success",
+            "message": "Блюдо добавлено в избранное"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Ошибка при добавлении в избранное: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при добавлении в избранное: {str(e)}")
+
+@app.delete("/favorites/{user_id}")
+async def remove_favorite(user_id: str, request: FavoriteRequest):
+    """Удалить блюдо из избранного"""
+    try:
+        print(f"🗑️ Удаление из избранного: пользователь {user_id}, блюдо {request.meal_id}")
+        
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import async_session, UserHistory
+        from sqlalchemy import select, delete
+        
+        async with async_session() as session:
+            # Ищем запись в избранном
+            favorite_result = await session.execute(
+                select(UserHistory).where(
+                    UserHistory.user_id == user_id,
+                    UserHistory.type == "favorite",
+                    UserHistory.data.contains(f'"meal_id": {request.meal_id}')
+                )
+            )
+            
+            favorite_record = favorite_result.scalar_one_or_none()
+            if not favorite_record:
+                raise HTTPException(status_code=404, detail="Блюдо не найдено в избранном")
+            
+            # Удаляем из избранного
+            await session.execute(
+                delete(UserHistory).where(UserHistory.id == favorite_record.id)
+            )
+            await session.commit()
+        
+        print(f"✅ Блюдо {request.meal_id} удалено из избранного пользователя {user_id}")
+        
+        return {
+            "status": "success",
+            "message": "Блюдо удалено из избранного"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Ошибка при удалении из избранного: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении из избранного: {str(e)}")
+
+@app.get("/favorites/{user_id}")
+async def get_favorites(user_id: str):
+    """Получить список избранных блюд"""
+    try:
+        print(f"📋 Получение избранного для пользователя {user_id}")
+        
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import async_session, UserHistory, get_history
+        from sqlalchemy import select
+        
+        # Получаем все записи избранного
+        async with async_session() as session:
+            favorites_result = await session.execute(
+                select(UserHistory).where(
+                    UserHistory.user_id == user_id,
+                    UserHistory.type == "favorite"
+                ).order_by(UserHistory.timestamp.desc())
+            )
+            
+            favorites_records = favorites_result.scalars().all()
+        
+        # Получаем историю пользователя для получения данных о блюдах
+        history = await get_history(user_id)
+        
+        favorites_list = []
+        for favorite_record in favorites_records:
+            try:
+                favorite_data = json.loads(favorite_record.data)
+                meal_id = favorite_data.get("meal_id")
+                
+                # Ищем соответствующее блюдо в истории
+                meal_entry = None
+                for entry in history:
+                    if entry.get("id") == meal_id and entry.get("type") == "meal":
+                        meal_entry = entry
+                        break
+                
+                if meal_entry:
+                    # Парсим данные блюда
+                    meal_data = meal_entry.get("data", {})
+                    if isinstance(meal_data, str):
+                        meal_data = json.loads(meal_data)
+                    
+                    favorite_item = {
+                        "meal_id": meal_id,
+                        "description": meal_data.get("description", "Описание недоступно"),
+                        "time": meal_data.get("time", ""),
+                        "calories": meal_data.get("calories", 0),
+                        "protein": meal_data.get("protein", 0),
+                        "fat": meal_data.get("fat", 0),
+                        "carb": meal_data.get("carb", 0),
+                        "fiber": meal_data.get("fiber", 0),
+                        "image": meal_data.get("image", ""),
+                        "products": meal_data.get("products", []),
+                        "added_date": favorite_data.get("added_date", favorite_record.timestamp.isoformat())
+                    }
+                    favorites_list.append(favorite_item)
+                    
+            except Exception as e:
+                print(f"Ошибка обработки записи избранного: {e}")
+                continue
+        
+        print(f"✅ Найдено {len(favorites_list)} избранных блюд для пользователя {user_id}")
+        
+        return favorites_list
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Ошибка при получении избранного: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении избранного: {str(e)}")
+
+# Endpoint для проверки статуса избранного блюда
+@app.get("/favorites/{user_id}/check/{meal_id}")
+async def check_favorite_status(user_id: str, meal_id: int):
+    """Проверить, добавлено ли блюдо в избранное"""
+    try:
+        print(f"🔍 Проверка статуса избранного: пользователь {user_id}, блюдо {meal_id}")
+        
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import async_session, UserHistory
+        from sqlalchemy import select
+        
+        async with async_session() as session:
+            # Проверяем наличие в избранном
+            result = await session.execute(
+                select(UserHistory).where(
+                    UserHistory.user_id == user_id,
+                    UserHistory.type == "favorite",
+                    UserHistory.data.contains(f'"meal_id": {meal_id}')
+                )
+            )
+            
+            is_favorite = result.scalar_one_or_none() is not None
+        
+        return {
+            "meal_id": meal_id,
+            "is_favorite": is_favorite
+        }
+        
+    except Exception as e:
+        print(f"❌ Ошибка при проверке статуса избранного: {e}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при проверке статуса: {str(e)}")
+
