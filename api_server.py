@@ -2370,7 +2370,7 @@ class FavoriteItem(BaseModel):
     added_date: str
 
 # Endpoints для избранного
-@app.post("/favorites/{user_id}")
+@app.post("/api/favorites/{user_id}")
 async def add_favorite(user_id: str, request: FavoriteRequest):
     """Добавить блюдо в избранное"""
     try:
@@ -2437,7 +2437,7 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
         print(f"❌ Ошибка при добавлении в избранное: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при добавлении в избранное: {str(e)}")
 
-@app.delete("/favorites/{user_id}")
+@app.delete("/api/favorites/{user_id}")
 async def remove_favorite(user_id: str, request: FavoriteRequest):
     """Удалить блюдо из избранного"""
     try:
@@ -2481,7 +2481,7 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
         print(f"❌ Ошибка при удалении из избранного: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при удалении из избранного: {str(e)}")
 
-@app.get("/favorites/{user_id}")
+@app.get("/api/favorites/{user_id}")
 async def get_favorites(user_id: str):
     """Получить список избранных блюд"""
     try:
@@ -2555,7 +2555,7 @@ async def get_favorites(user_id: str):
         raise HTTPException(status_code=500, detail=f"Ошибка при получении избранного: {str(e)}")
 
 # Endpoint для проверки статуса избранного блюда
-@app.get("/favorites/{user_id}/check/{meal_id}")
+@app.get("/api/favorites/{user_id}/check/{meal_id}")
 async def check_favorite_status(user_id: str, meal_id: int):
     """Проверить, добавлено ли блюдо в избранное"""
     try:
