@@ -2379,7 +2379,7 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import async_session, UserHistory
-        from sqlalchemy import select
+        from sqlalchemy import select, cast, JSON
         
         # Получаем данные о блюде из meal_entries
         async with async_session() as session:
@@ -2401,7 +2401,7 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    UserHistory.data.op('@>')('{"meal_id": ' + str(request.meal_id) + '}')
+                    UserHistory.data.op('@>')(cast('{"meal_id": ' + str(request.meal_id) + '}', JSON))
                 )
             )
             
@@ -2446,7 +2446,7 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import async_session, UserHistory
-        from sqlalchemy import select, delete
+        from sqlalchemy import select, delete, cast, JSON
         
         async with async_session() as session:
             # Ищем запись в избранном
@@ -2454,7 +2454,7 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    UserHistory.data.op('@>')('{"meal_id": ' + str(request.meal_id) + '}')
+                    UserHistory.data.op('@>')(cast('{"meal_id": ' + str(request.meal_id) + '}', JSON))
                 )
             )
             
@@ -2564,7 +2564,7 @@ async def check_favorite_status(user_id: str, meal_id: int):
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import async_session, UserHistory
-        from sqlalchemy import select
+        from sqlalchemy import select, cast, JSON
         
         async with async_session() as session:
             # Проверяем наличие в избранном
@@ -2572,7 +2572,7 @@ async def check_favorite_status(user_id: str, meal_id: int):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    UserHistory.data.op('@>')('{"meal_id": ' + str(meal_id) + '}')
+                    UserHistory.data.op('@>')(cast('{"meal_id": ' + str(meal_id) + '}', JSON))
                 )
             )
             
