@@ -2401,7 +2401,7 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    UserHistory.data.op('@>')(cast('{"meal_id": ' + str(request.meal_id) + '}', JSON))
+                    UserHistory.data.contains('{"meal_id": ' + str(request.meal_id) + '}')
                 )
             )
             
@@ -2454,7 +2454,7 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    UserHistory.data.op('@>')(cast('{"meal_id": ' + str(request.meal_id) + '}', JSON))
+                    UserHistory.data.contains('{"meal_id": ' + str(request.meal_id) + '}')
                 )
             )
             
@@ -2572,7 +2572,7 @@ async def check_favorite_status(user_id: str, meal_id: int):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    UserHistory.data.op('@>')(cast('{"meal_id": ' + str(meal_id) + '}', JSON))
+                    UserHistory.data.contains('{"meal_id": ' + str(meal_id) + '}')
                 )
             )
             
