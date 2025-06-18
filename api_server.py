@@ -2392,26 +2392,21 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
             print(f"📊 Получено записей в истории: {len(history)}")
             
             # Логируем первые несколько записей для отладки
-            meal_entries = [entry for entry in history if entry.get("type") == "food"]  # Исправлено: "meal" -> "food"
+            meal_entries = [entry for entry in history if entry.get("type") == "food"]
             print(f"🍽️ Найдено записей типа 'food': {len(meal_entries)}")
             
-            if meal_entries:
-                print(f"📝 Первые 3 блюда в истории:")
-                for i, entry in enumerate(meal_entries[:3]):
-                    print(f"  {i+1}. ID: {entry.get('id')}, тип: {entry.get('type')}, данные: {str(entry.get('data', {}))[:100]}...")
-            
-            # Ищем блюдо в истории
-            print(f"🔎 Ищем блюдо с ID: {request.meal_id}")
+            # Ищем блюдо в истории по индексу (meal_id это индекс в массиве блюд)
+            print(f"🔎 Ищем блюдо с индексом: {request.meal_id}")
             meal_data = None
-            for entry in history:
-                if entry.get("id") == request.meal_id and entry.get("type") == "food":  # Исправлено: "meal" -> "food"
-                    meal_data = entry
-                    print(f"✅ Блюдо найдено! ID: {entry.get('id')}")
-                    break
             
-            if not meal_data:
-                print(f"❌ Блюдо с ID {request.meal_id} не найдено в истории")
-                print(f"📋 Доступные ID блюд: {[entry.get('id') for entry in meal_entries]}")
+            # meal_id в дневнике - это индекс блюда в массиве, начиная с 1
+            meal_index = request.meal_id - 1  # Преобразуем в 0-based индекс
+            
+            if 0 <= meal_index < len(meal_entries):
+                meal_data = meal_entries[meal_index]
+                print(f"✅ Блюдо найдено по индексу {meal_index}!")
+            else:
+                print(f"❌ Индекс {meal_index} вне диапазона. Доступно блюд: {len(meal_entries)}")
                 raise HTTPException(status_code=404, detail="Блюдо не найдено")
             
             # Проверяем, не добавлено ли уже в избранное
