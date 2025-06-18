@@ -1,0 +1,2593 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Публичный дневник питания</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://use.fontawesome.com/releases/v5.15.3/css/all.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --tg-theme-bg-color: #ffffff;
+            --tg-theme-text-color: #222222;
+            --tg-theme-button-color: #4d6073;
+            --tg-theme-button-text-color: #ffffff;
+        }
+        
+        body {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            margin: 0;
+            background-color: var(--tg-theme-bg-color, #f5f5f5);
+            color: var(--tg-theme-text-color, #222222);
+            font-family: 'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            overflow-y: auto;
+        }
+
+        .content-container {
+            flex-grow: 1;
+            padding-bottom: 70px; /* Для нижней навигации */
+            overflow-y: auto;
+        }
+
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            background-color: #ffffff;
+            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
+
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px 0;
+            color: #6c757d;
+            text-decoration: none;
+            font-size: 12px;
+            transition: color 0.3s;
+        }
+
+        .nav-item.active {
+            color: #7a9b8e;
+            font-weight: 600;
+        }
+
+        .nav-icon {
+            font-size: 20px;
+            margin-bottom: 4px;
+        }
+
+        .section {
+            display: none;
+            padding: 20px;
+        }
+
+        .section.active {
+            display: block;
+        }
+
+        .page-title {
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: var(--tg-theme-text-color, #333);
+        }
+
+        .card {
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            margin-bottom: 16px;
+            border: none;
+        }
+
+        .card-header {
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #eee;
+            font-weight: 600;
+            border-radius: 12px 12px 0 0 !important;
+        }
+
+        /* Стили для пустых секций */
+        .empty-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 60px 20px;
+            text-align: center;
+            color: #6c757d;
+        }
+
+        .empty-section i {
+            font-size: 48px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .empty-section h3 {
+            margin-bottom: 10px;
+            font-weight: 500;
+        }
+
+        .empty-section p {
+            margin: 0;
+            opacity: 0.7;
+        }
+
+        /* Стили для дневника */
+        .date-navigator {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: linear-gradient(135deg, #7a9b8e 0%, #6b8b7d 100%);
+            border-radius: 12px;
+            color: white;
+            box-shadow: 0 4px 12px rgba(122, 155, 142, 0.3);
+        }
+
+        .date-navigator button {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .date-navigator button:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .date-navigator button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .date-navigator h3 {
+            margin: 0;
+            font-weight: 600;
+            text-align: center;
+            flex: 1;
+        }
+
+        /* Стили для общей информации */
+        .info-card {
+            background: linear-gradient(135deg, #7a9b8e 0%, #6b8b7d 100%);
+            color: white;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 24px rgba(122, 155, 142, 0.3);
+        }
+
+        .calories-circle {
+            position: relative;
+            width: 120px;
+            height: 140px;
+            margin: 20px auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .calories-circle svg {
+            transform: rotate(-90deg);
+        }
+
+        .calories-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+
+        .calories-number {
+            font-size: 24px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .calories-label {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .macro-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-top: 20px;
+        }
+
+        .macro-item {
+            text-align: left;
+        }
+
+        .macro-label {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-bottom: 5px;
+        }
+
+        .macro-progress {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            height: 8px;
+            overflow: hidden;
+            margin-bottom: 5px;
+        }
+
+        .macro-progress-bar {
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 10px;
+            transition: width 0.3s ease;
+        }
+
+        .macro-text {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        /* Стили для приемов пищи */
+        .meals-card {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .meal-item {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-left: 4px solid var(--tg-theme-button-color, #4d6073);
+        }
+
+        .meal-time {
+            font-weight: 600;
+            color: var(--tg-theme-button-color, #4d6073);
+            font-size: 0.9rem;
+        }
+
+        .meal-description {
+            margin: 5px 0;
+            color: #333;
+            white-space: pre-line;
+        }
+
+        .meal-image {
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            object-fit: cover;
+            margin-right: 12px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .meal-image:hover {
+            transform: scale(1.05);
+        }
+
+        /* Модальное окно для изображений */
+        .image-modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.9);
+        }
+
+        .modal-content {
+            margin: auto;
+            display: block;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90%;
+            object-fit: contain;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border-radius: 8px;
+        }
+
+        .close {
+            position: absolute;
+            top: 15px;
+            right: 35px;
+            color: #f1f1f1;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .close:hover {
+            color: #bbb;
+        }
+
+        /* Стили загрузки */
+        .loading-spinner {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+
+        /* Адаптивность */
+        @media (max-width: 576px) {
+            .section {
+                padding: 15px;
+            }
+            
+            .macro-grid {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+            
+            .calories-circle {
+                width: 100px;
+                height: 100px;
+            }
+            
+            .calories-number {
+                font-size: 20px;
+            }
+        }
+
+        /* Стили для раздела Вес (точная копия из webapp) */
+        .weight-card {
+            background: linear-gradient(135deg, #7a9b8e 0%, #5a7b6e 100%);
+            color: white;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(122, 155, 142, 0.3);
+        }
+
+        .weight-current {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .weight-change {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+
+        .weight-change.positive {
+            color: #ff6b6b;
+        }
+
+        .weight-change.negative {
+            color: #51cf66;
+        }
+
+        .weight-goal {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-top: 10px;
+        }
+
+        .period-selector {
+            display: flex;
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 4px;
+            margin-bottom: 20px;
+            overflow-x: auto;
+        }
+
+        .period-btn {
+            flex: 1;
+            padding: 8px 12px;
+            border: none;
+            background: transparent;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #6c757d;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            min-width: 70px;
+        }
+
+        .period-btn.active {
+            background: #7a9b8e;
+            color: white;
+            box-shadow: 0 2px 8px rgba(122, 155, 142, 0.3);
+        }
+
+        .weight-chart-container {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            height: 300px;
+            position: relative;
+        }
+
+        .chart-placeholder {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #6c757d;
+            flex-direction: column;
+        }
+
+        .chart-placeholder i {
+            font-size: 3rem;
+            margin-bottom: 10px;
+            opacity: 0.5;
+        }
+
+        .weight-history-table {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+
+        .weight-history-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            font-weight: 600;
+            border-bottom: 1px solid #eee;
+        }
+
+        .weight-entry {
+            padding: 15px 20px;
+            border-bottom: 1px solid #f0f0f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .weight-entry:last-child {
+            border-bottom: none;
+        }
+
+        .weight-entry-date {
+            font-weight: 500;
+            color: #333;
+        }
+
+        .weight-entry-value {
+            font-weight: 600;
+            color: #7a9b8e;
+        }
+
+        .weight-entry-change {
+            font-size: 0.8rem;
+            margin-left: 8px;
+        }
+
+        .weight-entry-change.positive {
+            color: #ff6b6b;
+        }
+
+        .weight-entry-change.negative {
+            color: #51cf66;
+        }
+
+        .weight-entry-delete {
+            margin-left: 10px;
+            background-color: #e9ecef;
+            border: none;
+            cursor: pointer;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            transition: background-color 0.2s ease, opacity 0.2s ease;
+            opacity: 0.8;
+        }
+
+        .weight-entry-delete:hover {
+            background-color: #d8dfe3;
+            opacity: 1;
+        }
+
+        .weight-entry-delete .fas.fa-times {
+            font-size: 12px;
+            color: #495057;
+            line-height: 1;
+        }
+        .weight-card {
+            background: linear-gradient(135deg, #7a9b8e 0%, #5a7b6e 100%);
+            color: white;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(122, 155, 142, 0.3);
+        }
+
+        .weight-current {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .weight-change {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+
+        .weight-change.positive {
+            color: #ff6b6b;
+        }
+
+        .weight-change.negative {
+            color: #51cf66;
+        }
+
+        .weight-goal {
+            font-size: 0.9rem;
+            opacity: 0.8;
+            margin-top: 10px;
+        }
+
+        .period-selector {
+            display: flex;
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 4px;
+            margin-bottom: 20px;
+            overflow-x: auto;
+        }
+
+        .period-btn {
+            flex: 1;
+            background: none;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #6c757d;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .period-btn:hover {
+            background: rgba(122, 155, 142, 0.1);
+            color: #7a9b8e;
+        }
+
+        .period-btn.active {
+            background: #7a9b8e;
+            color: white;
+        }
+
+        .weight-chart-container {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .weight-history-table {
+            background: white;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .weight-history-header {
+            background: #f8f9fa;
+            padding: 15px 20px;
+            font-weight: 600;
+            color: #495057;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .weight-entry {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            border-bottom: 1px solid #f1f3f4;
+        }
+
+        .weight-entry:last-child {
+            border-bottom: none;
+        }
+
+        .weight-entry-date {
+            font-weight: 500;
+            color: #333;
+        }
+
+        .weight-entry-value {
+            font-weight: 600;
+            color: #7a9b8e;
+            margin-right: 10px;
+        }
+
+        .weight-entry-change {
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-right: 10px;
+        }
+
+        .weight-entry-change.positive {
+            color: #ff6b6b;
+        }
+
+        .weight-entry-change.negative {
+            color: #51cf66;
+        }
+
+        .weight-entry-delete {
+            background: none;
+            border: none;
+            color: #dc3545;
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 4px;
+            opacity: 0.7;
+            transition: all 0.2s;
+        }
+
+        .weight-entry-delete:hover {
+            opacity: 1;
+            background: rgba(220, 53, 69, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="content-container">
+        <!-- Секция Дневник -->
+        <div id="diary-section" class="section active">
+            <h2 class="page-title">📘 Дневник питания</h2>
+            
+            <!-- Навигация по дням -->
+            <div class="date-navigator">
+                <button onclick="navigateDay(-1)">‹</button>
+                <h3 id="currentDate">Сегодня</h3>
+                <button id="nextDayBtn" onclick="navigateDay(1)">›</button>
+            </div>
+            
+            <div id="diary-content">
+                <div id="loading" class="loading-spinner">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-2">Загрузка дневника...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Секция Статистика (точная копия из webapp) -->
+        <div id="stats-section" class="section">
+            <h2 class="page-title">📊 Статистика</h2>
+            
+            <!-- Навигация по неделям -->
+            <div class="date-navigator" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding: 15px; background: linear-gradient(135deg, #7a9b8e 0%, #6b8b7d 100%); border-radius: 12px; color: white; box-shadow: 0 4px 12px rgba(122, 155, 142, 0.3);">
+                <button onclick="navigateWeek(-1)" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                    ‹
+                </button>
+                <h3 id="weekRange" style="margin: 0; font-weight: 600; text-align: center;">Текущая неделя</h3>
+                <button id="nextWeekBtn" onclick="navigateWeek(1)" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer;">
+                    ›
+                </button>
+            </div>
+            
+            <div id="stats-content">
+                <div class="loading-spinner">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-2">Загрузка статистики...</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Секция Вес -->
+        <div id="weight-section" class="section">
+            <h2 class="page-title">⚖️ Вес</h2>
+            <div id="weight-content">
+                <div class="loading-spinner">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Загрузка...</span>
+                    </div>
+                    <p class="mt-2">Загрузка данных о весе...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Нижняя навигационная панель -->
+    <nav class="bottom-nav">
+        <div class="container">
+            <div class="row text-center">
+                <div class="col">
+                    <a href="#diary" class="nav-item active" data-section="diary-section">
+                        <div class="nav-icon">📘</div>
+                        <span>Дневник</span>
+                    </a>
+                </div>
+                <div class="col">
+                    <a href="#stats" class="nav-item" data-section="stats-section">
+                        <div class="nav-icon">📊</div>
+                        <span>Статистика</span>
+                    </a>
+                </div>
+                <div class="col">
+                    <a href="#weight" class="nav-item" data-section="weight-section">
+                        <div class="nav-icon">⚖️</div>
+                        <span>Вес</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Модальное окно для изображений -->
+    <div id="imageModal" class="image-modal">
+        <span class="close">&times;</span>
+        <img class="modal-content" id="modalImage">
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentDayOffset = 0;
+        let currentWeekOffset = 0;
+        let sharedData = null;
+
+        // Инициализация при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚀 Скрипт загружен!');
+            
+            // Настройка навигации
+            setupNavigation();
+            
+            // Настройка модального окна для изображений
+            setupImageModal();
+            
+            // Загружаем данные дневника
+            loadSharedDiary();
+        });
+
+        // Настройка навигации между секциями
+        function setupNavigation() {
+            const navItems = document.querySelectorAll('.nav-item');
+            navItems.forEach(item => {
+                item.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    
+                    // Убираем активный класс со всех элементов
+                    navItems.forEach(nav => nav.classList.remove('active'));
+                    document.querySelectorAll('.section').forEach(section => section.classList.remove('active'));
+                    
+                    // Добавляем активный класс к выбранному элементу
+                    this.classList.add('active');
+                    const sectionId = this.getAttribute('data-section');
+                    document.getElementById(sectionId).classList.add('active');
+                    
+                    // Загружаем данные для соответствующей секции
+                    if (sectionId === 'stats-section') {
+                        loadStatsData();
+                    } else if (sectionId === 'weight-section') {
+                        loadWeightData();
+                    }
+                });
+            });
+        }
+
+        // Настройка модального окна для изображений
+        function setupImageModal() {
+            const modal = document.getElementById('imageModal');
+            const modalImg = document.getElementById('modalImage');
+            const span = document.getElementsByClassName('close')[0];
+
+            // Закрытие модального окна
+            span.onclick = function() {
+                modal.style.display = 'none';
+            };
+
+            // Закрытие при клике вне изображения
+            modal.onclick = function(event) {
+                if (event.target === modal) {
+                    modal.style.display = 'none';
+                }
+            };
+        }
+
+        // Показ изображения в модальном окне
+        function showImageModal(imageSrc) {
+            const modal = document.getElementById('imageModal');
+            const modalImg = document.getElementById('modalImage');
+            
+            modal.style.display = 'block';
+            modalImg.src = imageSrc;
+        }
+
+        // Функция расчета целевых значений (точная копия логики из bot.py)
+        function calculateUserTargets(userInfo) {
+            const { age, height, weight, goal, gender, activity, pregnant } = userInfo;
+            
+            // Используем дефолтные значения если данных нет
+            const userGender = gender || "муж"; // по умолчанию мужчина
+            const userActivity = activity || "средний"; // по умолчанию средняя активность
+            const isPregnant = pregnant || false;
+            
+            // Calculate BMR (Mifflin-St Jeor) - точная копия из бота
+            let bmr;
+            if (userGender === "муж") {
+                bmr = 10 * weight + 6.25 * height - 5 * age + 5;
+            } else {
+                bmr = 10 * weight + 6.25 * height - 5 * age - 161;
+            }
+            
+            // Коэффициенты активности - точная копия из бота
+            const multipliers = {"низкий": 1.2, "средний": 1.3, "высокий": 1.4};
+            const maintenance = bmr * (multipliers[userActivity] || 1.2);
+            
+            // Расчет целевых калорий - точная копия логики из бота
+            let targetCalories;
+            if (isPregnant) {
+                if (goal === weight) {
+                    targetCalories = maintenance * 1.17;
+                } else if (goal < weight) {
+                    targetCalories = maintenance;
+                } else {
+                    targetCalories = maintenance * 1.34;
+                }
+            } else {
+                if (goal === weight) {
+                    targetCalories = maintenance;
+                } else if (goal < weight) {
+                    targetCalories = maintenance * 0.83;
+                } else {
+                    targetCalories = maintenance * 1.17;
+                }
+            }
+            
+            // Минимум 1200 калорий - как в боте
+            targetCalories = Math.max(1200, targetCalories);
+            
+            // Расчет БЖУ - точная копия из бота
+            const proteinGrams = Math.floor((targetCalories * 0.3) / 4);
+            const fatGrams = Math.floor((targetCalories * 0.3) / 9);
+            const carbsGrams = Math.floor((targetCalories * 0.4) / 4);
+            const fiberGrams = Math.max(20, Math.round(targetCalories * 0.014));
+            
+            return {
+                calories: Math.floor(targetCalories),
+                protein: proteinGrams,
+                fat: fatGrams,
+                carb: carbsGrams,
+                fiber: fiberGrams
+            };
+        }
+
+        // Навигация по дням (точная копия из основного webapp)
+        function navigateDay(direction) {
+            // Запрещаем переход в будущее (direction = 1) когда уже на сегодняшнем дне
+            if (direction === 1 && currentDayOffset === 0) {
+                console.log('Переход в будущее запрещен');
+                return;
+            }
+            
+            currentDayOffset += direction;
+            console.log('🔄 Навигация на день с offset:', currentDayOffset);
+            
+            // Загружаем данные для нового дня (данные уже есть в sharedData)
+            loadDiaryForDay(currentDayOffset);
+        }
+
+        // Навигация по неделям
+        function navigateWeek(direction) {
+            // Запрещаем переход в будущее (direction = 1) когда уже на текущей неделе
+            if (direction === 1 && currentWeekOffset === 0) {
+                console.log('Переход в будущее запрещен');
+                return;
+            }
+            
+            currentWeekOffset += direction;
+            updateWeekDisplay();
+        }
+
+        // Обновление отображения недели
+        function updateWeekDisplay() {
+            const weekRangeElement = document.getElementById('weekRange');
+            const nextWeekBtn = document.getElementById('nextWeekBtn');
+            
+            const today = new Date();
+            const startOfWeek = new Date(today);
+            startOfWeek.setDate(today.getDate() - today.getDay() + 1 + (currentWeekOffset * 7)); // Понедельник
+            
+            const endOfWeek = new Date(startOfWeek);
+            endOfWeek.setDate(startOfWeek.getDate() + 6); // Воскресенье
+            
+            const formatDate = (date) => {
+                return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+            };
+            
+            if (currentWeekOffset === 0) {
+                weekRangeElement.textContent = 'Текущая неделя';
+                nextWeekBtn.disabled = true;
+                nextWeekBtn.style.opacity = '0.5';
+            } else {
+                weekRangeElement.textContent = `${formatDate(startOfWeek)} - ${formatDate(endOfWeek)}`;
+                nextWeekBtn.disabled = false;
+                nextWeekBtn.style.opacity = '1';
+            }
+        }
+
+        // Загрузка публичного дневника
+        async function loadSharedDiary() {
+            console.log('📥 Начинаем загрузку дневника...');
+            
+            // Извлекаем токен из URL
+            const pathParts = window.location.pathname.split('/');
+            console.log('📍 Текущий путь:', window.location.pathname);
+            
+            const token = pathParts[pathParts.length - 1];
+            console.log('🔑 Извлеченный токен:', token);
+            
+            if (!token || token === 'shared-diary') {
+                document.getElementById('loading').innerHTML = `
+                    <div class="error-message">
+                        <p><i class="fas fa-exclamation-circle"></i> Неверная ссылка на дневник</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            try {
+                const apiUrl = `https://telegram-bot-api-h136.onrender.com/shared-diary/${token}`;
+                console.log('🌐 Запрос к URL:', apiUrl);
+                
+                const response = await fetch(apiUrl);
+                console.log('📡 Ответ получен, статус:', response.status);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                console.log('📊 Полученные данные:', data);
+                
+                if (data.status === 'success') {
+                    console.log('✅ Статус успешный, передаем данные в renderDiary');
+                    console.log('📋 Данные для рендеринга:', data.data);
+                    console.log('🎯 Структура sharedData:', Object.keys(data.data));
+                    console.log('👤 user_info:', data.data.user_info);
+                    console.log('🎯 user_targets:', data.data.user_targets);
+                    console.log('📊 Все поля в data.data:', data.data);
+                    sharedData = data.data;
+                    loadDiaryForDay(currentDayOffset); // Используем текущий offset вместо 0
+                } else {
+                    throw new Error(data.message || 'Неизвестная ошибка');
+                }
+            } catch (error) {
+                console.error('❌ Ошибка загрузки дневника:', error);
+                document.getElementById('loading').innerHTML = `
+                    <div class="error-message">
+                        <p><i class="fas fa-exclamation-circle"></i> Не удалось загрузить дневник. ${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Загрузка данных дневника для конкретного дня
+        function loadDiaryForDay(dayOffset) {
+            if (!sharedData) {
+                console.error('Нет данных для отображения');
+                return;
+            }
+
+            console.log('🎨 Начинаем рендеринг дневника для дня:', dayOffset);
+            
+            // Обновляем заголовок даты
+            updateDateDisplay(dayOffset);
+            
+            // Группируем записи по дням
+            const today = new Date();
+            const targetDate = new Date(today);
+            targetDate.setDate(today.getDate() + dayOffset);
+            const targetDateStr = targetDate.toISOString().split('T')[0];
+            
+            console.log('📅 Целевая дата:', targetDateStr);
+            
+            // Фильтруем записи для выбранного дня (точно как в статистике)
+            const dayEntries = sharedData?.meal_entries?.filter(entry => {
+                const entryDate = new Date(entry.timestamp).toISOString().split('T')[0];
+                console.log('🔍 Сравниваем даты:', entryDate, 'vs', targetDateStr);
+                return entryDate === targetDateStr;
+            }) || [];
+            
+            console.log('📝 Записи для дня:', dayEntries);
+            
+            // Создаем объект данных дня
+            const dayData = {
+                total_calories: 0,
+                total_protein: 0,
+                total_fat: 0,
+                total_carb: 0,
+                total_fiber: 0,
+                meals: []
+            };
+
+            // Обрабатываем каждую запись
+            dayEntries.forEach((entry, index) => {
+                const time = new Date(entry.timestamp).toLocaleTimeString('ru-RU', {
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+
+                let nutritionData = null;
+                try {
+                    nutritionData = typeof entry.response === 'string' ? JSON.parse(entry.response) : entry.response;
+                } catch (e) {
+                    console.log('Не удалось распарсить JSON:', e);
+                }
+
+                let mealCalories = 0;
+                let mealProtein = 0;
+                let mealFat = 0;
+                let mealCarb = 0;
+                let mealFiber = 0;
+                let mealItems = [];
+                let description = '';
+
+                console.log('Данные о питании:', nutritionData);
+
+                if (nutritionData && nutritionData.items) {
+                    description = 'На фото:';
+                    nutritionData.items.forEach(item => {
+                        const calories = parseFloat(item.calories) || 0;
+                        const protein = parseFloat(item.protein) || 0;
+                        const fat = parseFloat(item.fat) || 0;
+                        const carb = parseFloat(item.carb) || 0;
+                        const fiber = parseFloat(item.fiber) || 0;
+                        const weight = parseFloat(item.weight) || 0;
+
+                        mealCalories += calories;
+                        mealProtein += protein;
+                        mealFat += fat;
+                        mealCarb += carb;
+                        mealFiber += fiber;
+
+                        mealItems.push({
+                            name: item.name || 'Продукт',
+                            weight: weight + 'г',
+                            calories: calories.toFixed(0) + ' ккал'
+                        });
+
+                        description += '\n• ' + (item.name || 'Продукт') + ' – ' + weight + ' г (~' + calories.toFixed(0) + ' ккал)';
+                    });
+                } else {
+                    // Если нет структурированных данных, пытаемся извлечь из response
+                    let rawDescription = entry.prompt || entry.response || 'Запись о питании';
+                    
+                    // Убираем строку с итогами если она есть
+                    description = rawDescription.replace(/📊\s*Итого:.*$/gm, '').trim();
+                    
+                    // Пытаемся извлечь калории из response если есть
+                    if (entry.response) {
+                        const caloriesMatch = entry.response.match(/(\d+)\s*ккал/i);
+                        if (caloriesMatch) {
+                            mealCalories = parseInt(caloriesMatch[1]);
+                        }
+                        
+                        // Пытаемся извлечь БЖУ из строки "Итого"
+                        const totalMatch = entry.response.match(/Итого:\s*(\d+)\s*ккал.*?Белки:\s*([\d.]+)\s*г.*?Жиры:\s*([\d.]+)\s*г.*?Углеводы:\s*([\d.]+)\s*г.*?Клетчатка:\s*([\d.]+)\s*г/i);
+                        if (totalMatch) {
+                            mealCalories = parseInt(totalMatch[1]) || 0;
+                            mealProtein = parseFloat(totalMatch[2]) || 0;
+                            mealFat = parseFloat(totalMatch[3]) || 0;
+                            mealCarb = parseFloat(totalMatch[4]) || 0;
+                            mealFiber = parseFloat(totalMatch[5]) || 0;
+                        }
+                    }
+                }
+
+                console.log('Калории приема пищи:', mealCalories);
+
+                // Добавляем к общим итогам
+                dayData.total_calories += mealCalories;
+                dayData.total_protein += mealProtein;
+                dayData.total_fat += mealFat;
+                dayData.total_carb += mealCarb;
+                dayData.total_fiber += mealFiber;
+
+                // Создаем объект приема пищи
+                dayData.meals.push({
+                    id: index + 1,
+                    time: time,
+                    description: description,
+                    calories: mealCalories.toFixed(0),
+                    protein: mealProtein.toFixed(1),
+                    fat: mealFat.toFixed(1),
+                    carb: mealCarb.toFixed(1),
+                    image: entry.image, // Используем поле image вместо compressed_image
+                    items: mealItems,
+                    timestamp: entry.timestamp
+                });
+            });
+
+            // Округляем итоговые значения
+            dayData.total_calories = Math.round(dayData.total_calories);
+            dayData.total_protein = Math.round(dayData.total_protein * 10) / 10;
+            dayData.total_fat = Math.round(dayData.total_fat * 10) / 10;
+            dayData.total_carb = Math.round(dayData.total_carb * 10) / 10;
+            dayData.total_fiber = Math.round(dayData.total_fiber * 10) / 10;
+            
+            console.log('Итоговые данные дня:', dayData);
+            
+            // Отображаем данные
+            renderDiaryData(dayData);
+        }
+
+        // Обновление отображения даты
+        function updateDateDisplay(dayOffset) {
+            const currentDateElement = document.getElementById('currentDate');
+            const nextDayBtn = document.getElementById('nextDayBtn');
+            
+            const today = new Date();
+            const targetDate = new Date(today);
+            targetDate.setDate(today.getDate() + dayOffset);
+            
+            if (dayOffset === 0) {
+                currentDateElement.textContent = 'Сегодня';
+                nextDayBtn.disabled = true;
+                nextDayBtn.style.opacity = '0.5';
+            } else if (dayOffset === -1) {
+                currentDateElement.textContent = 'Вчера';
+                nextDayBtn.disabled = false;
+                nextDayBtn.style.opacity = '1';
+            } else {
+                const options = { day: '2-digit', month: '2-digit', year: 'numeric' };
+                currentDateElement.textContent = targetDate.toLocaleDateString('ru-RU', options);
+                nextDayBtn.disabled = false;
+                nextDayBtn.style.opacity = '1';
+            }
+        }
+
+        // Отображение данных дневника (точная копия из основного webapp)
+        function renderDiaryData(data) {
+            // Безопасно скрываем loading если он существует
+            const loadingElement = document.getElementById('loading');
+            if (loadingElement) {
+                loadingElement.style.display = 'none';
+            }
+            
+            const diaryContent = document.getElementById('diary-content');
+            
+            // Рассчитываем целевые значения на основе данных пользователя
+            const userTargets = calculateUserTargets(sharedData.user_info);
+            console.log('🎯 Рассчитанные целевые значения:', userTargets);
+            
+            const targetCalories = userTargets.calories;
+            const targetProtein = userTargets.protein;
+            const targetFat = userTargets.fat;
+            const targetCarb = userTargets.carb;
+            const targetFiber = userTargets.fiber;
+            
+            // Рассчитываем проценты
+            const caloriesPercent = Math.min((data.total_calories / targetCalories) * 100, 100);
+            const proteinPercent = Math.min((data.total_protein / targetProtein) * 100, 100);
+            const fatPercent = Math.min((data.total_fat / targetFat) * 100, 100);
+            const carbPercent = Math.min((data.total_carb / targetCarb) * 100, 100);
+            const fiberPercent = Math.min((data.total_fiber / targetFiber) * 100, 100);
+            
+            // Создаем SVG для круговой диаграммы калорий
+            const radius = 50;
+            const circumference = 2 * Math.PI * radius;
+            const strokeDasharray = circumference;
+            const strokeDashoffset = circumference - (caloriesPercent / 100) * circumference;
+            
+            let html = `
+                <div class="info-card">
+                    <h5 class="mb-0">📊 Общая информация</h5>
+                    
+                    <div class="calories-circle">
+                        <div style="position: relative; display: inline-block;">
+                            <svg width="120" height="120" style="transform: rotate(-90deg);">
+                                <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="8"/>
+                                <circle cx="60" cy="60" r="50" fill="none" stroke="white" stroke-width="8" 
+                                        stroke-dasharray="${2 * Math.PI * 50}" 
+                                        stroke-dashoffset="${2 * Math.PI * 50 * (1 - Math.min(caloriesPercent / 100, 1))}"
+                                        style="transition: stroke-dashoffset 0.5s ease;"/>
+                            </svg>
+                            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                                <div style="font-size: 1.2rem; font-weight: 700;">${data.total_calories}</div>
+                                <div style="font-size: 0.8rem; opacity: 0.9;">из ${targetCalories}</div>
+                                <div style="font-size: 0.7rem; opacity: 0.8;">ккал</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="macro-grid">
+                        <div class="macro-item">
+                            <div class="macro-label">Белки: ${data.total_protein}г / ${targetProtein}г</div>
+                            <div class="macro-progress">
+                                <div class="macro-progress-bar" style="width: ${proteinPercent}%"></div>
+                            </div>
+                            <div class="macro-text">${Math.round(proteinPercent)}%</div>
+                        </div>
+                        
+                        <div class="macro-item">
+                            <div class="macro-label">Жиры: ${data.total_fat}г / ${targetFat}г</div>
+                            <div class="macro-progress">
+                                <div class="macro-progress-bar" style="width: ${fatPercent}%"></div>
+                            </div>
+                            <div class="macro-text">${Math.round(fatPercent)}%</div>
+                        </div>
+                        
+                        <div class="macro-item">
+                            <div class="macro-label">Углеводы: ${data.total_carb}г / ${targetCarb}г</div>
+                            <div class="macro-progress">
+                                <div class="macro-progress-bar" style="width: ${carbPercent}%"></div>
+                            </div>
+                            <div class="macro-text">${Math.round(carbPercent)}%</div>
+                        </div>
+                        
+                        <div class="macro-item">
+                            <div class="macro-label">Клетчатка: ${data.total_fiber}г / ${targetFiber}г</div>
+                            <div class="macro-progress">
+                                <div class="macro-progress-bar" style="width: ${fiberPercent}%"></div>
+                            </div>
+                            <div class="macro-text">${Math.round(fiberPercent)}%</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // Добавляем секцию приемов пищи
+            if (data.meals && data.meals.length > 0) {
+                let mealsHtml = `
+                    <div class="meals-card">
+                        <h5 class="mb-3">🍽️ Приемы пищи</h5>
+                `;
+                
+                data.meals.forEach(meal => {
+                    let imageHtml = '';
+                    if (meal.image) {
+                        imageHtml = `
+                            <img src="data:image/jpeg;base64,${meal.image}" 
+                                 class="meal-image" 
+                                 onclick="showImageModal('data:image/jpeg;base64,${meal.image}')"
+                                 alt="Фото блюда">
+                        `;
+                    } else {
+                        imageHtml = `
+                            <div style="width: 60px; height: 60px; background: #e9ecef; border-radius: 8px; margin-right: 12px; display: flex; align-items: center; justify-content: center; color: #6c757d;">
+                                🍽️
+                            </div>
+                        `;
+                    }
+                    
+                    mealsHtml += `
+                        <div class="meal-item" style="background: #f8f9fa; border-radius: 8px; padding: 12px; margin-bottom: 10px; border-left: 4px solid var(--tg-theme-button-color, #4d6073);">
+                            <div class="d-flex align-items-start">
+                                ${imageHtml}
+                                <div style="flex: 1;">
+                                    <div class="meal-time" style="font-weight: 600; color: var(--tg-theme-button-color, #4d6073); font-size: 0.9rem;">${meal.time}</div>
+                                    <div class="meal-description" style="margin: 5px 0; color: #333; white-space: pre-line;">${meal.description}</div>
+                                    <div class="meal-calories" style="font-size: 0.9rem; color: #666;">
+                                        ${meal.calories} ккал • Б: ${meal.protein}г • Ж: ${meal.fat}г • У: ${meal.carb}г
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                mealsHtml += `
+                    </div>
+                `;
+                
+                html += mealsHtml;
+            } else {
+                html += `
+                    <div class="meals-card">
+                        <div class="empty-section">
+                            <i class="fas fa-utensils"></i>
+                            <h3>Нет записей о питании</h3>
+                            <p>На этот день записи отсутствуют</p>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            diaryContent.innerHTML = html;
+        }
+
+        // Переменные для Chart.js
+        let chartJSLoaded = false;
+        let chartJSLoading = false;
+        
+        // Функция загрузки Chart.js (точная копия из webapp)
+        async function loadChartJS() {
+            // Если уже загружена
+            if (chartJSLoaded || window.Chart) {
+                chartJSLoaded = true;
+                return true;
+            }
+            
+            // Если уже идет загрузка, ждем
+            if (chartJSLoading) {
+                return new Promise((resolve) => {
+                    const checkLoaded = () => {
+                        if (chartJSLoaded) {
+                            resolve(true);
+                        } else {
+                            setTimeout(checkLoaded, 100);
+                        }
+                    };
+                    checkLoaded();
+                });
+            }
+            
+            chartJSLoading = true;
+            
+            try {
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+                    script.onload = () => {
+                        chartJSLoaded = true;
+                        chartJSLoading = false;
+                        resolve();
+                    };
+                    script.onerror = () => {
+                        chartJSLoading = false;
+                        reject(new Error('Не удалось загрузить Chart.js'));
+                    };
+                    document.head.appendChild(script);
+                });
+                
+                return true;
+            } catch (error) {
+                console.error('Ошибка при загрузке Chart.js:', error);
+                return false;
+            }
+        }
+
+        // Загрузка статистики (точная копия из webapp)
+        async function loadStatsData() {
+            const statsContent = document.getElementById('stats-content');
+            
+            try {
+                statsContent.innerHTML = `
+                    <div class="loading-spinner">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Загрузка...</span>
+                        </div>
+                        <p class="mt-2">Загрузка библиотеки графиков...</p>
+                    </div>
+                `;
+                
+                // Загружаем Chart.js перед отображением графиков
+                const chartLoaded = await loadChartJS();
+                if (!chartLoaded) {
+                    throw new Error('Не удалось загрузить библиотеку графиков');
+                }
+                
+                // Обновляем сообщение о загрузке
+                statsContent.innerHTML = `
+                    <div class="loading-spinner">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Загрузка...</span>
+                        </div>
+                        <p class="mt-2">Загрузка статистики...</p>
+                    </div>
+                `;
+                
+                // Рассчитываем целевые значения для статистики
+                const userTargets = calculateUserTargets(sharedData.user_info);
+                console.log('📊 Целевые значения для статистики:', userTargets);
+                
+                // Создаем объект statsData для публичного дневника
+                const statsData = {
+                    user_targets: userTargets
+                };
+                
+                await renderStatsWithCharts(statsData);
+            } catch (error) {
+                console.error('Ошибка при загрузке статистики:', error);
+                statsContent.innerHTML = `
+                    <div class="error-message">
+                        <p><i class="fas fa-exclamation-circle"></i> Не удалось загрузить статистику. Пожалуйста попробуйте позже.</p>
+                        <button class="btn btn-outline-primary btn-sm mt-2" onclick="loadStatsData()">
+                            <i class="fas fa-sync-alt"></i> Попробовать снова
+                        </button>
+                    </div>
+                `;
+            }
+        }
+
+        // Генерация дат недели (скопировано из index.html)
+        function generateWeekDates(weekOffset = 0) {
+            const dates = [];
+            const today = new Date();
+            
+            for (let i = 6; i >= 0; i--) {
+                const date = new Date(today);
+                date.setDate(today.getDate() - i + (weekOffset * 7));
+                dates.push(date);
+            }
+            
+            return dates;
+        }
+
+        // Генерация данных недели (скопировано из index.html)
+        async function generateWeekData(weekDates, statsData, userId) {
+            const weekData = {
+                calories: [],
+                proteins: [],
+                fats: [],
+                carbs: [],
+                fiber: [],
+                labels: []
+            };
+            
+            for (const date of weekDates) {
+                const dateStr = date.toISOString().split('T')[0];
+                
+                // Фильтруем записи для этого дня
+                const dayEntries = sharedData?.meal_entries?.filter(entry => {
+                    const entryDate = new Date(entry.timestamp).toISOString().split('T')[0];
+                    return entryDate === dateStr;
+                }) || [];
+                
+                // Подсчитываем КБЖУ за день
+                let dayCalories = 0, dayProteins = 0, dayFats = 0, dayCarbs = 0, dayFiber = 0;
+                
+                dayEntries.forEach(entry => {
+                    try {
+                        const nutritionData = typeof entry.response === 'string' ? JSON.parse(entry.response) : entry.response;
+                        if (nutritionData && nutritionData.items) {
+                            nutritionData.items.forEach(item => {
+                                dayCalories += parseFloat(item.calories) || 0;
+                                dayProteins += parseFloat(item.protein) || 0;
+                                dayFats += parseFloat(item.fat) || 0;
+                                dayCarbs += parseFloat(item.carbohydrates) || 0;
+                                dayFiber += parseFloat(item.fiber) || 0;
+                            });
+                        }
+                    } catch (e) {
+                        // Пытаемся извлечь из строки "Итого"
+                        if (entry.response) {
+                            const totalMatch = entry.response.match(/Итого:\s*(\d+)\s*ккал.*?Белки:\s*(\d+)\s*г.*?Жиры:\s*(\d+)\s*г.*?Углеводы:\s*(\d+)\s*г/i);
+                            if (totalMatch) {
+                                dayCalories += parseInt(totalMatch[1]) || 0;
+                                dayProteins += parseInt(totalMatch[2]) || 0;
+                                dayFats += parseInt(totalMatch[3]) || 0;
+                                dayCarbs += parseInt(totalMatch[4]) || 0;
+                            }
+                        }
+                    }
+                });
+                
+                weekData.calories.push(Math.round(dayCalories));
+                weekData.proteins.push(Math.round(dayProteins));
+                weekData.fats.push(Math.round(dayFats));
+                weekData.carbs.push(Math.round(dayCarbs));
+                weekData.fiber.push(Math.round(dayFiber));
+                weekData.labels.push(date.toLocaleDateString('ru-RU', { weekday: 'short' }));
+            }
+            
+            return weekData;
+        }
+
+        // Функции создания графиков (скопированы из index.html)
+        function createCaloriesChart(data, labels, target) {
+            const ctx = document.getElementById('caloriesChart');
+            if (!ctx) return;
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: data.map(value => {
+                            const ratio = value / target;
+                            if (ratio >= 1) {
+                                return 'linear-gradient(180deg, #FFD700 0%, #7a9b8e 100%)';
+                            } else {
+                                return '#7a9b8e';
+                            }
+                        }),
+                        borderRadius: 4,
+                        borderSkipped: false,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: '#e0e0e0',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#666',
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                color: '#666',
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createProteinsChart(data, labels, target) {
+            const ctx = document.getElementById('proteinsChart');
+            if (!ctx) return;
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: data.map(value => {
+                            const ratio = value / target;
+                            if (ratio >= 1) {
+                                return 'linear-gradient(180deg, #FFD700 0%, #7a9b8e 100%)';
+                            } else {
+                                return '#7a9b8e';
+                            }
+                        }),
+                        borderRadius: 4,
+                        borderSkipped: false,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: '#e0e0e0',
+                                drawBorder: false
+                            },
+                            ticks: {
+                                color: '#666',
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            },
+                            ticks: {
+                                color: '#666',
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Навигация по неделям (скопировано из index.htm        // Навигация по неделям (точная копия из webapp)
+        function navigateWeek(direction) {
+            currentWeekOffset += direction;
+            
+            // Ограничиваем навигацию в будущее
+            if (currentWeekOffset > 0) {
+                currentWeekOffset = 0;
+                return;
+            }
+            
+            // Перезагружаем статистику для новой недели
+            loadStatsData();
+        }
+
+        // Обновление отображения недели (точная копия из webapp)
+        function updateWeekDisplay() {
+            const weekRange = document.getElementById('weekRange');
+            const nextWeekBtn = document.getElementById('nextWeekBtn');
+            if (!weekRange) return;
+            
+            // Используем ту же логику что и в generateWeekDates
+            const endDate = new Date(); // Сегодня - это конечная дата
+            endDate.setDate(endDate.getDate() + (currentWeekOffset * 7));
+            
+            const startDate = new Date(endDate);
+            startDate.setDate(endDate.getDate() - 6); // 6 дней назад от конечной даты
+            
+            const formatDate = (date) => {
+                return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
+            };
+            
+            if (currentWeekOffset === 0) {
+                weekRange.textContent = 'Последние 7 дней';
+            } else {
+                weekRange.textContent = `${formatDate(startDate)} - ${formatDate(endDate)}`;
+            }
+            
+            // Управляем видимостью кнопки "следующая неделя"
+            if (nextWeekBtn) {
+                if (currentWeekOffset === 0) {
+                    // На текущем периоде - делаем кнопку неактивной с улучшенным дизайном
+                    nextWeekBtn.style.background = 'rgba(150,150,150,0.4)';
+                    nextWeekBtn.style.color = 'rgba(255,255,255,0.6)';
+                    nextWeekBtn.style.cursor = 'not-allowed';
+                    nextWeekBtn.disabled = true;
+                } else {
+                    // На прошлых периодах - кнопка активна
+                    nextWeekBtn.style.background = 'rgba(255,255,255,0.2)';
+                    nextWeekBtn.style.color = 'white';
+                    nextWeekBtn.style.cursor = 'pointer';
+                    nextWeekBtn.disabled = false;
+                }
+            }
+            
+            console.log(`Обновлена подпись недели (offset=${currentWeekOffset}): ${weekRange.textContent}`);
+        }
+
+        // Переменные для Chart.js
+        let chartsLoaded = false;
+
+        // Загрузка Chart.js
+        function loadChartJS() {
+            return new Promise((resolve) => {
+                if (window.Chart) {
+                    resolve(true);
+                    return;
+                }
+                
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+                script.onload = () => resolve(true);
+                script.onerror = () => resolve(false);
+                document.head.appendChild(script);
+            });
+        }
+
+        // Отображение статистики с графиками (точная копия из webapp)
+        async function renderStatsWithCharts(statsData) {
+            const statsContent = document.getElementById('stats-content');
+            
+            // Генерируем данные для недели на основе данных из дневника
+            const weekDates = generateWeekDates(currentWeekOffset);
+            const weekData = await generateWeekData(weekDates, statsData, null);
+            
+            statsContent.innerHTML = `
+                <style>
+                .macro-card {
+                    background-color: #fff;
+                    border-radius: 12px;
+                    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                    padding: 20px 0;
+                    margin: 20px -20px;
+                    border: 1px solid rgba(0, 0, 0, 0.05);
+                }
+                .macro-card h3 {
+                    color: #333;
+                    margin-bottom: 15px;
+                    font-weight: 600;
+                    font-size: 1.2rem;
+                    padding: 0 20px;
+                }
+                .macro-card p {
+                    color: #666;
+                    margin-bottom: 15px;
+                    font-size: 0.9rem;
+                    padding: 0 20px;
+                }
+                .macro-card canvas {
+                    height: 200px !important;
+                    width: 100% !important;
+                    margin: 0 !important;
+                    padding: 0 !important;
+                }
+                </style>
+                
+                <!-- Карточки с графиками -->
+                <div class="macro-card">
+                    <h3>Калории 🔥 <small style="font-size: 13px;">Цель: ${statsData.user_targets?.calories || 2000} ккал</small></h3>
+                    <p>Среднее значение в день: <strong>${Math.round(weekData.calories.reduce((a, b) => a + b, 0) / 7)} ккал</strong></p>
+                    <canvas id="caloriesChart"></canvas>
+                </div>
+
+                <div class="macro-card">
+                    <h3>Белки 💪 <small style="font-size: 13px;">Цель: ${statsData.user_targets?.protein || 100} г.</small></h3>
+                    <p>Среднее значение в день: <strong>${Math.round(weekData.proteins.reduce((a, b) => a + b, 0) / 7)} г</strong></p>
+                    <canvas id="proteinsChart"></canvas>
+                </div>
+
+                <div class="macro-card">
+                    <h3>Жиры 🧈 <small style="font-size: 13px;">Цель: ${statsData.user_targets?.fat || 67} г.</small></h3>
+                    <p>Среднее значение в день: <strong>${Math.round(weekData.fats.reduce((a, b) => a + b, 0) / 7)} г</strong></p>
+                    <canvas id="fatsChart"></canvas>
+                </div>
+
+                <div class="macro-card">
+                    <h3>Углеводы 🍞 <small style="font-size: 13px;">Цель: ${statsData.user_targets?.carb || 250} г.</small></h3>
+                    <p>Среднее значение в день: <strong>${Math.round(weekData.carbs.reduce((a, b) => a + b, 0) / 7)} г</strong></p>
+                    <canvas id="carbsChart"></canvas>
+                </div>
+
+                <div class="macro-card" style="margin-bottom: 30px;">
+                    <h3>Клетчатка 🌾 <small style="font-size: 13px;">Цель: ${statsData.user_targets?.fiber || 25} г</small></h3>
+                    <p>Среднее значение в день: <strong>${Math.round(weekData.fiber.reduce((a, b) => a + b, 0) / 7)} г</strong></p>    
+                    <canvas id="fiberChart"></canvas>
+                </div>
+            `;
+            
+            // Создаем графики
+            setTimeout(() => {
+                createCharts(weekDates, weekData, statsData.user_targets);
+                updateWeekDisplay();
+            }, 100);
+        }
+
+        // Генерация дат недели (точная копия из webapp)
+        function generateWeekDates(weekOffset) {
+            const dates = [];
+            const endDate = new Date(); // Сегодня - это конечная дата
+            
+            // Сдвигаем конечную дату на weekOffset * 7 дней
+            endDate.setDate(endDate.getDate() + (weekOffset * 7));
+            
+            // Генерируем 7 дней назад от конечной даты
+            for (let i = 6; i >= 0; i--) {
+                const date = new Date(endDate);
+                date.setDate(endDate.getDate() - i);
+                // Возвращаем даты в формате DD.MM.YYYY для совместимости с daily_data
+                dates.push(date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' }));
+            }
+            
+            console.log(`Сгенерированные даты (скользящие 7 дней, offset=${weekOffset}):`, dates);
+            return dates;
+        }
+
+        // Генерация данных недели (исправленная версия для публичного дневника)
+        async function generateWeekData(dates, statsData, userId) {
+            console.log('🔍 generateWeekData вызвана с параметрами:', { dates, statsData, userId });
+            console.log('🔍 sharedData доступен:', !!sharedData);
+            console.log('🔍 sharedData.meal_entries:', sharedData?.meal_entries?.length || 0);
+            
+            // Добавляем логи структуры записей
+            if (sharedData && sharedData.meal_entries && sharedData.meal_entries.length > 0) {
+                console.log('📋 Структура первой записи meal_entries:');
+                console.log(sharedData.meal_entries[0]);
+                console.log('📋 Все ключи первой записи:', Object.keys(sharedData.meal_entries[0]));
+            }
+            
+            // Создаем массивы для каждого макронутриента
+            const calories = [];
+            const proteins = [];
+            const fats = [];
+            const carbs = [];
+            const fiber = [];
+            
+            // Если есть данные дневника, используем их
+            if (sharedData && sharedData.meal_entries) {
+                console.log('✅ Используем данные из sharedData');
+                
+                for (const dateStr of dates) {
+                    console.log(`📅 Обрабатываем дату: ${dateStr}`);
+                    
+                    // Преобразуем дату в формат YYYY-MM-DD для сравнения
+                    const [day, month, year] = dateStr.split('.');
+                    const targetDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+                    console.log(`🎯 Ищем записи за дату: ${targetDate}`);
+                    
+                    // Ищем записи за этот день - проверяем разные поля с датой
+                    const dayEntries = sharedData.meal_entries.filter(entry => {
+                        // Проверяем разные возможные поля с датой
+                        const possibleDates = [
+                            entry.date,
+                            entry.created_at?.split('T')[0],
+                            entry.timestamp?.split('T')[0],
+                            entry.entry_date,
+                            entry.meal_date
+                        ];
+                        
+                        console.log(`  Проверяем запись с возможными датами:`, possibleDates);
+                        
+                        for (const possibleDate of possibleDates) {
+                            if (possibleDate === targetDate) {
+                                console.log(`✅ Найдено совпадение: ${possibleDate} === ${targetDate}`);
+                                return true;
+                            }
+                        }
+                        
+                        return false;
+                    });
+                    
+                    console.log(`📊 Найдено записей за ${targetDate}: ${dayEntries.length}`);
+                    
+                    // Суммируем данные за день
+                    let dayCalories = 0;
+                    let dayProteins = 0;
+                    let dayFats = 0;
+                    let dayCarbs = 0;
+                    let dayFiber = 0;
+                    
+                    dayEntries.forEach((entry, index) => {
+                        console.log(`🍽️ Обрабатываем запись ${index + 1}:`, entry);
+                        
+                        // Данные о питании хранятся в поле data, а не nutrition_data
+                        if (entry.data && Array.isArray(entry.data)) {
+                            console.log(`📊 Найдено ${entry.data.length} элементов в data`);
+                            
+                            entry.data.forEach((item, itemIndex) => {
+                                console.log(`  🥗 Элемент ${itemIndex + 1}:`, item);
+                                console.log(`  🔍 Все ключи элемента:`, Object.keys(item || {}));
+                                
+                                if (item && typeof item === 'object') {
+                                    // Проверяем разные возможные названия для калорий
+                                    const possibleCaloriesFields = ['calories', 'kcal', 'energy', 'cal'];
+                                    let itemCalories = 0;
+                                    
+                                    for (const field of possibleCaloriesFields) {
+                                        if (item[field] !== undefined) {
+                                            itemCalories = item[field];
+                                            console.log(`  🔥 Найдены калории в поле "${field}": ${itemCalories}`);
+                                            break;
+                                        }
+                                    }
+                                    
+                                    dayCalories += itemCalories || 0;
+                                    dayProteins += item.protein || 0;
+                                    dayFats += item.fat || 0;
+                                    dayCarbs += item.carb || 0;
+                                    dayFiber += item.fiber || 0;
+                                    
+                                    console.log(`  ➕ Добавлено: калории=${itemCalories}, белки=${item.protein}, жиры=${item.fat}, углеводы=${item.carb}, клетчатка=${item.fiber}`);
+                                }
+                            });
+                        } else if (entry.nutrition_data) {
+                            // Fallback на старый формат
+                            try {
+                                const nutrition = typeof entry.nutrition_data === 'string' 
+                                    ? JSON.parse(entry.nutrition_data) 
+                                    : entry.nutrition_data;
+                                
+                                console.log(`🥗 Nutrition данные (fallback):`, nutrition);
+                                
+                                dayCalories += nutrition.calories || 0;
+                                dayProteins += nutrition.protein || 0;
+                                dayFats += nutrition.fat || 0;
+                                dayCarbs += nutrition.carb || 0;
+                                dayFiber += nutrition.fiber || 0;
+                                
+                                console.log(`➕ Добавлено (fallback): калории=${nutrition.calories}, белки=${nutrition.protein}, жиры=${nutrition.fat}, углеводы=${nutrition.carb}, клетчатка=${nutrition.fiber}`);
+                            } catch (e) {
+                                console.warn('⚠️ Ошибка парсинга nutrition_data:', e);
+                            }
+                        } else {
+                            console.log('⚠️ Нет данных о питании в записи');
+                        }
+                    });
+                    
+                    console.log(`📈 Итого за ${targetDate}: калории=${dayCalories}, белки=${dayProteins}, жиры=${dayFats}, углеводы=${dayCarbs}, клетчатка=${dayFiber}`);
+                    
+                    calories.push(Math.round(dayCalories));
+                    proteins.push(Math.round(dayProteins));
+                    fats.push(Math.round(dayFats));
+                    carbs.push(Math.round(dayCarbs));
+                    fiber.push(Math.round(dayFiber));
+                }
+            } else {
+                console.log('❌ Нет данных sharedData, заполняем нулями');
+                // Если нет данных - заполняем нулями
+                for (let i = 0; i < 7; i++) {
+                    calories.push(0);
+                    proteins.push(0);
+                    fats.push(0);
+                    carbs.push(0);
+                    fiber.push(0);
+                }
+            }
+            
+            const result = {
+                calories: calories,
+                proteins: proteins,
+                fats: fats,
+                carbs: carbs,
+                fiber: fiber
+            };
+            
+            console.log('🎯 Финальный результат generateWeekData:', result);
+            return result;
+        }
+
+        // Создание всех графиков (точная копия из webapp)
+        function createCharts(dates, data, targets) {
+            console.log('🎯 Начинаем создание графиков...');
+            console.log('🎯 Даты:', dates);
+            console.log('🎯 Данные:', data);
+            console.log('🎯 Цели:', targets);
+            
+            // Проверяем, что Chart.js загружен
+            if (!window.Chart) {
+                console.error('❌ Chart.js не загружен! Графики не могут быть созданы.');
+                return;
+            }
+            
+            console.log('✅ Chart.js доступен, продолжаем...');
+            
+            // Настройка глобальных параметров Chart.js для лучшего отображения шрифтов
+            Chart.defaults.font.family = 'Manrope, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+            Chart.defaults.font.weight = '400';
+            Chart.defaults.font.lineHeight = 1.2;
+            
+            // Преобразуем даты в дни недели
+            const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+            const weekDays = dates.map(dateStr => {
+                // Парсим дату в формате DD.MM.YYYY
+                const [day, month, year] = dateStr.split('.');
+                const date = new Date(year, month - 1, day);
+                return dayNames[date.getDay()];
+            });
+            
+            console.log('📅 Дни недели для подписей:', weekDays);
+            
+            const config = [
+                {
+                    element: 'caloriesChart',
+                    data: data.calories,
+                    targetValue: targets?.calories || 2000,
+                    icon: '🔥'
+                },
+                {
+                    element: 'proteinsChart',
+                    data: data.proteins,
+                    targetValue: targets?.protein || 100,
+                    icon: '💪'
+                },
+                {
+                    element: 'fatsChart',
+                    data: data.fats,
+                    targetValue: targets?.fat || 67,
+                    icon: '🧈'
+                },
+                {
+                    element: 'carbsChart',
+                    data: data.carbs,
+                    targetValue: targets?.carb || 250,
+                    icon: '🍞'
+                },
+                {
+                    element: 'fiberChart',
+                    data: data.fiber,
+                    targetValue: targets?.fiber || 25,
+                    icon: '🌾'
+                }
+            ];
+
+            console.log('📊 Конфигурация графиков:', config);
+
+            config.forEach(function(chartConfig, index) {
+                console.log(`📈 Создаем график ${index + 1}/5: ${chartConfig.element}`);
+                
+                const ctx = document.getElementById(chartConfig.element);
+                if (!ctx) {
+                    console.error(`❌ Элемент ${chartConfig.element} не найден!`);
+                    return;
+                }
+                
+                console.log(`✅ Элемент ${chartConfig.element} найден:`, ctx);
+                
+                const canvasCtx = ctx.getContext('2d');
+                console.log(`✅ Контекст canvas получен:`, canvasCtx);
+                
+                // Создаем индивидуальные градиенты для каждого столбца
+                const backgroundColors = chartConfig.data.map((value, index) => {
+                    const percentage = (value / chartConfig.targetValue) * 100;
+                    
+                    // Создаем градиент для каждого столбца (от верха к низу)
+                    const gradient = canvasCtx.createLinearGradient(0, 0, 0, 400);
+                    
+                    if (percentage <= 85) {
+                        // Случай 1: До 85% - полностью зеленый столбец
+                        gradient.addColorStop(0, '#7a9b8e');
+                        gradient.addColorStop(1, '#7a9b8e');
+                        
+                    } else if (percentage <= 100) {
+                        // Случай 2: 85-100% - зеленый снизу, желтый сверху
+                        gradient.addColorStop(0, '#F1C40F');      // Верх - желтый
+                        gradient.addColorStop(0.2, '#F1C40F');    // 20% желтого сверху
+                        gradient.addColorStop(0.3, '#7a9b8e');    // Переход к зеленому
+                        gradient.addColorStop(1, '#7a9b8e');      // 70% зеленого снизу
+                        
+                    } else {
+                        // Случай 3: Выше 100% - красный сверху, желтый в середине, зеленый снизу
+                        const greenPortion = 85 / percentage;    // Доля зеленого (до 85%)
+                        const yellowPortion = 15 / percentage;   // Доля желтого (85-100%)
+                        
+                        gradient.addColorStop(0, '#E74C3C');                           // Верх - красный
+                        gradient.addColorStop(1 - greenPortion - yellowPortion, '#E74C3C'); // Красная зона
+                        gradient.addColorStop(1 - greenPortion - yellowPortion + 0.05, '#F1C40F'); // Переход к желтому
+                        gradient.addColorStop(1 - greenPortion, '#F1C40F');            // Желтая зона
+                        gradient.addColorStop(1 - greenPortion + 0.05, '#7a9b8e');     // Переход к зеленому
+                        gradient.addColorStop(1, '#7a9b8e');                          // Зеленая зона
+                    }
+                    
+                    return gradient;
+                });
+                
+                // Создаем массив с целевым значением для каждого дня
+                const targetLine = new Array(weekDays.length).fill(chartConfig.targetValue);
+                
+                console.log(`📊 Создаем Chart для ${chartConfig.element}...`);
+                
+                try {
+                    new Chart(canvasCtx, {
+                        type: 'bar',
+                        data: {
+                            labels: weekDays,
+                            datasets: [
+                                {
+                                    type: 'bar',
+                                    label: 'Данные',
+                                    data: chartConfig.data,
+                                    backgroundColor: backgroundColors,
+                                    borderColor: 'transparent',
+                                    borderWidth: 0,
+                                    borderRadius: 4,
+                                    borderSkipped: false,
+                                    barThickness: 16,
+                                    categoryPercentage: 1.0,
+                                    barPercentage: 0.6
+                                },
+                                {
+                                    type: 'line',
+                                    label: 'Цель',
+                                    data: targetLine,
+                                    borderColor: '#98989D',
+                                    backgroundColor: 'transparent',
+                                    borderWidth: 2,
+                                    pointRadius: 0,
+                                    pointHoverRadius: 0,
+                                    fill: false,
+                                    tension: 0,
+                                    borderDash: [6, 6]
+                                }
+                            ]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: {
+                                intersect: false,
+                                mode: 'index'
+                            },
+                            animation: {
+                                duration: 750,
+                                easing: 'easeInOutQuart'
+                            },
+                            layout: {
+                                padding: {
+                                    top: 10,
+                                    bottom: 5,
+                                    left: 0,
+                                    right: 0
+                                }
+                            },
+                            scales: {
+                                x: {
+                                    grid: {
+                                        display: true,
+                                        drawBorder: false,
+                                        color: 'rgba(152, 152, 157, 0.3)',
+                                        borderDash: [2, 2],
+                                        lineWidth: 1
+                                    },
+                                    border: {
+                                        display: false
+                                    },
+                                    ticks: {
+                                        color: '#8E8E93',
+                                        font: {
+                                            size: window.innerWidth < 768 ? 14 : 16,
+                                            weight: '400',
+                                            family: 'Manrope, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                                        },
+                                        maxRotation: 0,
+                                        padding: 15,
+                                        textStrokeColor: 'transparent',
+                                        textStrokeWidth: 0
+                                    }
+                                },
+                                y: {
+                                    beginAtZero: true,
+                                    position: 'right',
+                                    border: {
+                                        display: false
+                                    },
+                                    grid: {
+                                        color: 'rgba(152, 152, 157, 0.2)',
+                                        borderDash: [],
+                                        lineWidth: 1,
+                                        drawBorder: false
+                                    },
+                                    ticks: {
+                                        color: '#8E8E93',
+                                        font: {
+                                            size: window.innerWidth < 768 ? 13 : 15,
+                                            weight: '400',
+                                            family: 'Manrope, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                                        },
+                                        padding: 15,
+                                        maxTicksLimit: 4,
+                                        textStrokeColor: 'transparent',
+                                        textStrokeWidth: 0,
+                                        callback: function(value) {
+                                            // Форматируем числа как в Apple (с пробелами для тысяч)
+                                            return Math.round(value).toLocaleString('ru-RU');
+                                        }
+                                    }
+                                }
+                            },
+                            plugins: {
+                                legend: {
+                                    display: false
+                                },
+                                tooltip: {
+                                    enabled: true,
+                                    backgroundColor: 'rgba(28, 28, 30, 0.95)',
+                                    titleColor: '#FFFFFF',
+                                    bodyColor: '#FFFFFF',
+                                    borderColor: 'transparent',
+                                    borderWidth: 0,
+                                    cornerRadius: 16,
+                                    displayColors: false,
+                                    titleFont: {
+                                        size: window.innerWidth < 768 ? 15 : 17,
+                                        weight: '500',
+                                        family: 'Manrope, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                                    },
+                                    bodyFont: {
+                                        size: window.innerWidth < 768 ? 14 : 16,
+                                        weight: '400',
+                                        family: 'Manrope, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+                                    },
+                                    padding: 20,
+                                    caretSize: 10,
+                                    callbacks: {
+                                        title: function(context) {
+                                            return `${chartConfig.icon} ${context[0].label}`;
+                                        },
+                                        label: function(context) {
+                                            if (context.datasetIndex === 0) {
+                                                const percentage = Math.round((context.parsed.y / chartConfig.targetValue) * 100);
+                                                return `${context.parsed.y} (${percentage}% от цели)`;
+                                            } else {
+                                                return `Цель: ${context.parsed.y}`;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    
+                    console.log(`✅ График ${chartConfig.element} создан успешно!`);
+                    
+                } catch (error) {
+                    console.error(`❌ Ошибка создания графика ${chartConfig.element}:`, error);
+                }
+            });
+            
+            console.log('🎯 Создание всех графиков завершено!');
+        }
+
+        // Загрузка данных о весе
+        async function loadWeightData() {
+            console.log('⚖️ Загружаем данные о весе...');
+            console.log('🔍 DEBUG: sharedData =', sharedData);
+            
+            const weightContent = document.getElementById('weight-content');
+            if (!weightContent) {
+                console.log('❌ DEBUG: Элемент weight-content не найден');
+                return;
+            }
+
+            // Если данные еще не загружены, ждем и пробуем снова
+            if (!sharedData) {
+                console.log('⏳ DEBUG: Данные еще не загружены, ждем...');
+                weightContent.innerHTML = '<div class="text-center text-muted py-5"><i class="fas fa-spinner fa-spin me-2"></i>Загрузка данных о весе...</div>';
+                
+                // Проверяем каждые 100мс до 5 секунд
+                let attempts = 0;
+                const maxAttempts = 50;
+                const checkData = () => {
+                    attempts++;
+                    console.log(`🔄 DEBUG: Попытка ${attempts}/${maxAttempts}, sharedData =`, sharedData);
+                    
+                    if (sharedData) {
+                        console.log('✅ DEBUG: Данные загружены, продолжаем...');
+                        loadWeightData(); // Рекурсивно вызываем себя когда данные готовы
+                        return;
+                    }
+                    
+                    if (attempts < maxAttempts) {
+                        setTimeout(checkData, 100);
+                    } else {
+                        console.log('❌ DEBUG: Таймаут ожидания данных');
+                        weightContent.innerHTML = '<div class="text-center text-muted py-5">Не удалось загрузить данные о весе</div>';
+                    }
+                };
+                
+                setTimeout(checkData, 100);
+                return;
+            }
+
+            try {
+                // Извлекаем токен из URL для API запроса
+                const pathParts = window.location.pathname.split('/');
+                const token = pathParts[pathParts.length - 1];
+                
+                console.log('🔍 DEBUG: Загружаем данные о весе через API...');
+                console.log('🔑 DEBUG: Токен для API:', token);
+                
+                // Показываем индикатор загрузки
+                weightContent.innerHTML = '<div class="text-center text-muted py-5"><i class="fas fa-spinner fa-spin me-2"></i>Загрузка данных о весе...</div>';
+                
+                // Загружаем данные о весе через API (как в webapp)
+                const weightResponse = await fetch(`https://telegram-bot-api-h136.onrender.com/weight/${token}?period=month`);
+                console.log('📡 DEBUG: Ответ API веса, статус:', weightResponse.status);
+                
+                if (!weightResponse.ok) {
+                    throw new Error(`HTTP ${weightResponse.status}`);
+                }
+                
+                const weightData = await weightResponse.json();
+                console.log('📊 DEBUG: Данные о весе из API:', weightData);
+                
+                if (weightData.status === 'success') {
+                    renderWeightData(weightData.data);
+                } else {
+                    throw new Error(weightData.message || 'Ошибка загрузки данных о весе');
+                }
+                
+            } catch (error) {
+                console.error('❌ DEBUG: Ошибка загрузки данных о весе:', error);
+                
+                // Fallback - показываем данные из профиля пользователя
+                console.log('🔄 DEBUG: Используем fallback - данные из профиля...');
+                showWeightFromProfile();
+            }
+        }
+
+        // Fallback функция для показа веса из профиля пользователя
+        function showWeightFromProfile() {
+            console.log('📊 DEBUG: Показываем вес из профиля пользователя');
+            
+            const weightContent = document.getElementById('weight-content');
+            if (!weightContent) {
+                console.log('❌ DEBUG: Элемент weight-content не найден');
+                return;
+            }
+
+            const userInfo = sharedData.user_info || {};
+            console.log('👤 DEBUG: Данные пользователя из профиля:', userInfo);
+
+            // Создаем данные для отображения на основе профиля
+            const profileWeightData = {
+                entries: [], // Нет истории, только текущий вес
+                current_weight: userInfo.weight,
+                goal_weight: userInfo.goal,
+                weight_change: null // Нет данных об изменении
+            };
+
+            console.log('📊 DEBUG: Данные для отображения из профиля:', profileWeightData);
+            renderWeightData(profileWeightData);
+        }
+
+        // Функция рендеринга данных о весе (адаптированная из webapp)
+        function renderWeightData(data) {
+            console.log('📊 DEBUG: Рендерим данные о весе:', data);
+            
+            const weightContent = document.getElementById('weight-content');
+            const entries = data.entries || [];
+            const currentWeight = data.current_weight;
+            const goalWeight = data.goal_weight;
+            const weightChange = data.weight_change;
+            const userInfo = sharedData.user_info || {};
+
+            console.log('📊 DEBUG: entries =', entries);
+            console.log('📊 DEBUG: currentWeight =', currentWeight);
+            console.log('📊 DEBUG: goalWeight =', goalWeight);
+
+            // Карточка с текущим весом (адаптированная из webapp)
+            let weightCardHtml = `
+                <div class="weight-card">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div>
+                            <div class="weight-current">${currentWeight ? currentWeight + ' кг' : (userInfo.weight ? userInfo.weight + ' кг' : 'Не указан')}</div>
+                            ${weightChange ? `
+                                <div class="weight-change ${weightChange > 0 ? 'positive' : 'negative'}">
+                                    ${weightChange > 0 ? '+' : ''}${weightChange} кг за период
+                                </div>
+                            ` : ''}
+                            ${goalWeight ? `
+                                <div class="weight-goal">Цель: ${goalWeight} кг</div>
+                            ` : (userInfo.goal ? `
+                                <div class="weight-goal">Цель: ${userInfo.goal} кг</div>
+                            ` : '')}
+                            ${userInfo.height ? `
+                                <div class="weight-height">Рост: ${userInfo.height} см</div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // График веса (без селектора периода)
+            let chartHtml = `
+                <div class="weight-chart-container">
+                    <canvas id="weightChart"></canvas>
+                </div>
+            `;
+
+            // История веса
+            let historyHtml = `
+                <div class="weight-history-table">
+                    <div class="weight-history-header">
+                        <i class="fas fa-history me-2"></i>История веса
+                    </div>
+                    <div class="weight-history-content">
+            `;
+
+            if (entries && entries.length > 0) {
+                entries.forEach((entry, index) => {
+                    const date = new Date(entry.timestamp).toLocaleDateString('ru-RU');
+                    const weight = entry.weight;
+                    let change = '';
+                    
+                    if (index < entries.length - 1) {
+                        const prevWeight = entries[index + 1].weight;
+                        const diff = weight - prevWeight;
+                        if (diff !== 0) {
+                            change = `<span class="weight-change-small ${diff > 0 ? 'positive' : 'negative'}">${diff > 0 ? '+' : ''}${diff.toFixed(1)} кг</span>`;
+                        }
+                    }
+
+                    historyHtml += `
+                        <div class="weight-entry">
+                            <div class="weight-entry-date">${date}</div>
+                            <div class="weight-entry-weight">${weight} кг</div>
+                            <div class="weight-entry-change">${change}</div>
+                        </div>
+                    `;
+                });
+            } else {
+                historyHtml += `
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-weight me-2"></i>
+                        Нет записей о весе
+                    </div>
+                `;
+            }
+
+            historyHtml += `
+                    </div>
+                </div>
+            `;
+
+            // Собираем весь HTML
+            weightContent.innerHTML = weightCardHtml + chartHtml + historyHtml;
+
+            // Создаем график если есть данные
+            if (entries && entries.length > 0) {
+                console.log('📊 DEBUG: Создаем график с данными:', entries);
+                setTimeout(() => {
+                    createWeightChart(entries, goalWeight || userInfo.goal);
+                }, 100);
+            } else {
+                console.log('📊 DEBUG: Нет данных для графика');
+            }
+
+            console.log(`✅ DEBUG: Раздел "Вес" отображен с ${entries.length} записями`);
+        }
+
+        // Создание графика веса (адаптированная версия из webapp)
+        function createWeightChart(entries, goalWeight) {
+            const ctx = document.getElementById('weightChart');
+            if (!ctx) return;
+
+            if (entries.length === 0) {
+                const container = ctx.parentElement;
+                container.innerHTML = `
+                    <div class="chart-placeholder">
+                        <i class="fas fa-chart-line"></i>
+                        <p>Недостаточно данных для графика</p>
+                        <small class="text-muted">Добавьте несколько записей веса</small>
+                    </div>
+                `;
+                return;
+            }
+
+            // Подготавливаем данные для графика
+            // Сортируем по timestamp, чтобы новые записи были справа
+            const sortedEntries = [...entries].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            const labels = sortedEntries.map(entry => {
+                const date = new Date(entry.timestamp);
+                return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+            });
+            const weights = sortedEntries.map(entry => entry.weight);
+
+            // Линия цели
+            const goalLine = goalWeight ? new Array(weights.length).fill(goalWeight) : [];
+
+            // Загружаем Chart.js если не загружен
+            if (!window.Chart) {
+                loadChartJS().then(() => {
+                    createWeightChart(entries, goalWeight);
+                });
+                return;
+            }
+
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Вес',
+                            data: weights,
+                            borderColor: '#7a9b8e',
+                            backgroundColor: 'rgba(122, 155, 142, 0.1)',
+                            borderWidth: 3,
+                            pointBackgroundColor: '#7a9b8e',
+                            pointBorderColor: '#ffffff',
+                            pointBorderWidth: 2,
+                            pointRadius: 6,
+                            pointHoverRadius: 8,
+                            fill: true,
+                            tension: 0.4
+                        },
+                        ...(goalWeight ? [{
+                            label: 'Цель',
+                            data: goalLine,
+                            borderColor: '#ff6b6b',
+                            backgroundColor: 'transparent',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            pointHoverRadius: 0,
+                            fill: false,
+                            tension: 0,
+                            borderDash: [6, 6]
+                        }] : [])
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    animation: {
+                        duration: 750,
+                        easing: 'easeInOutQuart'
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                display: true,
+                                color: 'rgba(0, 0, 0, 0.1)'
+                            },
+                            ticks: {
+                                color: '#6c757d',
+                                font: {
+                                    size: 12,
+                                    family: 'Manrope'
+                                }
+                            }
+                        },
+                        y: {
+                            grid: {
+                                display: true,
+                                color: 'rgba(0, 0, 0, 0.1)'
+                            },
+                            ticks: {
+                                color: '#6c757d',
+                                font: {
+                                    size: 12,
+                                    family: 'Manrope'
+                                },
+                                callback: function(value) {
+                                    return value + ' кг';
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: goalWeight ? true : false,
+                            position: 'top',
+                            labels: {
+                                color: '#6c757d',
+                                font: {
+                                    size: 12,
+                                    family: 'Manrope'
+                                },
+                                usePointStyle: true,
+                                pointStyle: 'line'
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                            titleColor: '#ffffff',
+                            bodyColor: '#ffffff',
+                            borderColor: '#7a9b8e',
+                            borderWidth: 1,
+                            cornerRadius: 8,
+                            displayColors: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y + ' кг';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>

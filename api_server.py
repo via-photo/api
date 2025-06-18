@@ -13,6 +13,33 @@ import hashlib
 import time
 from sqlalchemy import text
 
+# Обработка импорта menu_manager с защитой от ошибок
+try:
+    # Пытаемся импортировать menu_manager из текущей директории
+    from menu_manager import menu_manager, format_dish_for_api
+    print("Успешно импортирован menu_manager")
+except ImportError:
+    print("Ошибка импорта menu_manager. Создаем заглушки для функций.")
+    # Создаем заглушки для функций, чтобы сервер мог запуститься
+    class DummyMenuManager:
+        def get_menu_for_user(self, *args, **kwargs):
+            return []
+        def get_dishes_by_category(self, *args, **kwargs):
+            return []
+        def get_dish_by_id(self, *args, **kwargs):
+            return None
+        def search_dishes(self, *args, **kwargs):
+            return []
+        def get_categories(self, *args, **kwargs):
+            return ["breakfast", "lunch", "dinner", "snack"]
+        def get_menu_stats(self, *args, **kwargs):
+            return {}
+    
+    menu_manager = DummyMenuManager()
+    
+    def format_dish_for_api(dish):
+        return dish if dish else {}
+
 # Добавляем путь к модулю menu_manager
 sys.path.append('/home/ubuntu')
 from menu_manager import menu_manager, format_dish_for_api
@@ -2593,6 +2620,203 @@ async def check_favorite_status(user_id: str, meal_id: int):
     except Exception as e:
         print(f"❌ Ошибка при проверке статуса избранного: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при проверке статуса: {str(e)}")
+
+
+
+# ===== НОВЫЕ ЭНДПОИНТЫ ДЛЯ МЕНЮ =====
+
+@app.get("/api/menu/{user_id}", response_model=Dict[str, Any])
+async def get_user_menu(user_id: str, category: Optional[str] = None, api_key: str = Depends(verify_api_key)):
+    """
+    Получение меню для пользователя в зависимости от его целевых калорий
+    """
+    try:
+        # Проверяем кэш
+        cache_key = api_cache.get_cache_key("menu", user_id, category=category or "all")
+        cached_result = api_cache.get(cache_key)
+        if cached_result:
+            return cached_result
+        
+        # Получаем данные пользователя
+        try:
+            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+            from bot import get_user_data
+            user_data = await get_user_data(user_id)
+        except ImportError:
+            # Тестовые данные если bot.py недоступен
+            user_data = {"target_kcal": 1600}
+        
+        # Получаем целевые калории пользователя
+        target_calories = user_data.get("target_kcal", 1600)
+        
+        # Получаем меню для пользователя
+        if category and category != "all":
+            dishes = menu_manager.get_dishes_by_category(target_calories, category)
+        else:
+            dishes = menu_manager.get_menu_for_user(target_calories)
+        
+        # Форматируем блюда для API
+        formatted_dishes = [format_dish_for_api(dish) for dish in dishes]
+        
+        # Получаем статистику
+        stats = menu_manager.get_menu_stats(target_calories)
+        
+        result = {
+            "status": "success",
+            "data": {
+                "user_target_calories": target_calories,
+                "menu_target_calories": _get_menu_target(target_calories),
+                "dishes": formatted_dishes,
+                "categories": menu_manager.get_categories(),
+                "stats": stats,
+                "total_dishes": len(formatted_dishes)
+            }
+        }
+        
+        # Кэшируем результат на 30 минут
+        api_cache.set(cache_key, result, ttl=1800)
+        return result
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/menu/dish/{dish_id}", response_model=Dict[str, Any])
+async def get_dish_details(dish_id: int, api_key: str = Depends(verify_api_key)):
+    """
+    Получение детальной информации о блюде
+    """
+    try:
+        dish = menu_manager.get_dish_by_id(dish_id)
+        
+        if not dish:
+            raise HTTPException(status_code=404, detail="Блюдо не найдено")
+        
+        return {
+            "status": "success",
+            "data": format_dish_for_api(dish)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/menu/search/{user_id}", response_model=Dict[str, Any])
+async def search_menu_dishes(user_id: str, query: str, api_key: str = Depends(verify_api_key)):
+    """
+    Поиск блюд в меню пользователя
+    """
+    try:
+        # Получаем данные пользователя
+        try:
+            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+            from bot import get_user_data
+            user_data = await get_user_data(user_id)
+        except ImportError:
+            user_data = {"target_kcal": 1600}
+        
+        target_calories = user_data.get("target_kcal", 1600)
+        
+        # Выполняем поиск
+        dishes = menu_manager.search_dishes(target_calories, query)
+        formatted_dishes = [format_dish_for_api(dish) for dish in dishes]
+        
+        return {
+            "status": "success",
+            "data": {
+                "query": query,
+                "results": formatted_dishes,
+                "total_found": len(formatted_dishes)
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/menu/add-to-diary", response_model=Dict[str, Any])
+async def add_dish_to_diary(
+    user_id: str,
+    dish_id: int,
+    meal_type: str = "lunch",  # breakfast, lunch, dinner, snack
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Добавление блюда из меню в дневник питания
+    """
+    try:
+        # Получаем информацию о блюде
+        dish = menu_manager.get_dish_by_id(dish_id)
+        if not dish:
+            raise HTTPException(status_code=404, detail="Блюдо не найдено")
+        
+        # Формируем текст для добавления в дневник
+        meal_text = f"{dish['name']} - {dish['description']}"
+        nutrition_text = f"{dish['calories']} ккал, Белки: {dish['protein']} г, Жиры: {dish['fat']} г, Углеводы: {dish['carb']} г, Клетчатка: {dish['fiber']} г"
+        
+        full_response = f"🍽️ {meal_text}\n📊 {nutrition_text}"
+        
+        # Добавляем запись в историю пользователя
+        try:
+            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+            from bot import add_history_entry
+            
+            entry = {
+                "prompt": f"Добавлено из меню: {dish['name']} ({meal_type})",
+                "response": full_response,
+                "timestamp": datetime.now(),
+                "type": "food",
+                "data": {
+                    "source": "menu",
+                    "dish_id": dish_id,
+                    "meal_type": meal_type,
+                    "dish_data": dish
+                }
+            }
+            
+            await add_history_entry(user_id, entry)
+            
+            # Очищаем кэш пользователя
+            api_cache.invalidate_user_cache(user_id)
+            
+            return {
+                "status": "success",
+                "message": f"Блюдо '{dish['name']}' добавлено в дневник",
+                "data": {
+                    "dish": format_dish_for_api(dish),
+                    "meal_type": meal_type,
+                    "added_at": datetime.now().isoformat()
+                }
+            }
+            
+        except ImportError:
+            # Если bot.py недоступен, возвращаем успешный ответ без сохранения
+            return {
+                "status": "success",
+                "message": f"Блюдо '{dish['name']}' добавлено в дневник (тестовый режим)",
+                "data": {
+                    "dish": format_dish_for_api(dish),
+                    "meal_type": meal_type,
+                    "test_mode": True
+                }
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+def _get_menu_target(user_calories: int) -> int:
+    """Вспомогательная функция для определения целевой калорийности меню"""
+    if user_calories <= 1300:
+        return 1250
+    elif user_calories <= 1500:
+        return 1400
+    elif user_calories <= 1800:
+        return 1600
+    else:
+        return 1900
+
+# ===== КОНЕЦ НОВЫХ ЭНДПОИНТОВ =====
 
 
 
