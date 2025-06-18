@@ -2525,12 +2525,15 @@ async def get_favorites(user_id: str):
                 favorite_data = json.loads(favorite_record.data)
                 meal_id = favorite_data.get("meal_id")
                 
-                # Ищем соответствующее блюдо в истории
+                # Ищем соответствующее блюдо в истории по индексу
                 meal_entry = None
-                for entry in history:
-                    if entry.get("id") == meal_id and entry.get("type") == "food":
-                        meal_entry = entry
-                        break
+                meal_entries = [entry for entry in history if entry.get("type") == "food"]
+                
+                # meal_id это индекс блюда в массиве, начиная с 1
+                meal_index = meal_id - 1  # Преобразуем в 0-based индекс
+                
+                if 0 <= meal_index < len(meal_entries):
+                    meal_entry = meal_entries[meal_index]
                 
                 if meal_entry:
                     # Парсим данные блюда
