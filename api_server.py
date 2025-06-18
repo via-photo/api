@@ -2387,16 +2387,31 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
             sys.path.append(os.path.dirname(os.path.abspath(__file__)))
             from bot import get_history
             
+            print(f"🔍 Получение истории для пользователя {user_id}...")
             history = await get_history(user_id)
+            print(f"📊 Получено записей в истории: {len(history)}")
+            
+            # Логируем первые несколько записей для отладки
+            meal_entries = [entry for entry in history if entry.get("type") == "meal"]
+            print(f"🍽️ Найдено записей типа 'meal': {len(meal_entries)}")
+            
+            if meal_entries:
+                print(f"📝 Первые 3 блюда в истории:")
+                for i, entry in enumerate(meal_entries[:3]):
+                    print(f"  {i+1}. ID: {entry.get('id')}, тип: {entry.get('type')}, данные: {str(entry.get('data', {}))[:100]}...")
             
             # Ищем блюдо в истории
+            print(f"🔎 Ищем блюдо с ID: {request.meal_id}")
             meal_data = None
             for entry in history:
                 if entry.get("id") == request.meal_id and entry.get("type") == "meal":
                     meal_data = entry
+                    print(f"✅ Блюдо найдено! ID: {entry.get('id')}")
                     break
             
             if not meal_data:
+                print(f"❌ Блюдо с ID {request.meal_id} не найдено в истории")
+                print(f"📋 Доступные ID блюд: {[entry.get('id') for entry in meal_entries]}")
                 raise HTTPException(status_code=404, detail="Блюдо не найдено")
             
             # Проверяем, не добавлено ли уже в избранное
