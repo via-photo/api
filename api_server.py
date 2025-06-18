@@ -2379,7 +2379,7 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import async_session, UserHistory
-        from sqlalchemy import select, cast, JSON
+        from sqlalchemy import select, cast, JSON, String
         
         # Получаем данные о блюде из meal_entries
         async with async_session() as session:
@@ -2401,7 +2401,7 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    UserHistory.data.contains('{"meal_id": ' + str(request.meal_id) + '}')
+                    cast(UserHistory.data, String).contains('{"meal_id": ' + str(request.meal_id) + '}')
                 )
             )
             
@@ -2446,7 +2446,7 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import async_session, UserHistory
-        from sqlalchemy import select, delete, cast, JSON
+        from sqlalchemy import select, delete, cast, JSON, String
         
         async with async_session() as session:
             # Ищем запись в избранном
@@ -2454,7 +2454,7 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    UserHistory.data.contains('{"meal_id": ' + str(request.meal_id) + '}')
+                    cast(UserHistory.data, String).contains('{"meal_id": ' + str(request.meal_id) + '}')
                 )
             )
             
@@ -2564,7 +2564,7 @@ async def check_favorite_status(user_id: str, meal_id: int):
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import async_session, UserHistory
-        from sqlalchemy import select, cast, JSON
+        from sqlalchemy import select, cast, JSON, String
         
         async with async_session() as session:
             # Проверяем наличие в избранном
@@ -2572,7 +2572,7 @@ async def check_favorite_status(user_id: str, meal_id: int):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    UserHistory.data.contains('{"meal_id": ' + str(meal_id) + '}')
+                    cast(UserHistory.data, String).contains('{"meal_id": ' + str(meal_id) + '}')
                 )
             )
             
