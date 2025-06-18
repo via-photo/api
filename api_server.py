@@ -2392,8 +2392,8 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
             print(f"📊 Получено записей в истории: {len(history)}")
             
             # Логируем первые несколько записей для отладки
-            meal_entries = [entry for entry in history if entry.get("type") == "meal"]
-            print(f"🍽️ Найдено записей типа 'meal': {len(meal_entries)}")
+            meal_entries = [entry for entry in history if entry.get("type") == "food"]  # Исправлено: "meal" -> "food"
+            print(f"🍽️ Найдено записей типа 'food': {len(meal_entries)}")
             
             if meal_entries:
                 print(f"📝 Первые 3 блюда в истории:")
@@ -2404,7 +2404,7 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
             print(f"🔎 Ищем блюдо с ID: {request.meal_id}")
             meal_data = None
             for entry in history:
-                if entry.get("id") == request.meal_id and entry.get("type") == "meal":
+                if entry.get("id") == request.meal_id and entry.get("type") == "food":  # Исправлено: "meal" -> "food"
                     meal_data = entry
                     print(f"✅ Блюдо найдено! ID: {entry.get('id')}")
                     break
@@ -2533,7 +2533,7 @@ async def get_favorites(user_id: str):
                 # Ищем соответствующее блюдо в истории
                 meal_entry = None
                 for entry in history:
-                    if entry.get("id") == meal_id and entry.get("type") == "meal":
+                    if entry.get("id") == meal_id and entry.get("type") == "food":
                         meal_entry = entry
                         break
                 
