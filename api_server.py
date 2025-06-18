@@ -2381,17 +2381,20 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
         from bot import async_session, UserHistory
         from sqlalchemy import select, cast, JSON, String
         
-        # Получаем данные о блюде из meal_entries
+        # Получаем данные о блюде из истории пользователя
         async with async_session() as session:
-            # Проверяем существование блюда
-            meal_result = await session.execute(
-                select(UserHistory).where(
-                    UserHistory.id == request.meal_id,
-                    UserHistory.user_id == user_id,
-                    UserHistory.type == "meal"
-                )
-            )
-            meal_data = meal_result.scalar_one_or_none()
+            # Получаем историю пользователя для поиска блюда
+            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+            from bot import get_history
+            
+            history = await get_history(user_id)
+            
+            # Ищем блюдо в истории
+            meal_data = None
+            for entry in history:
+                if entry.get("id") == request.meal_id and entry.get("type") == "meal":
+                    meal_data = entry
+                    break
             
             if not meal_data:
                 raise HTTPException(status_code=404, detail="Блюдо не найдено")
