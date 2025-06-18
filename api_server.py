@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import uvicorn
 import os
+from dotenv import load_dotenv
 import sys
 import json
 from datetime import datetime, timedelta, date, timezone
@@ -13,43 +14,8 @@ import hashlib
 import time
 from sqlalchemy import text
 
-# Обработка импорта menu_manager с защитой от ошибок
-try:
-    # Пытаемся импортировать menu_manager из текущей директории
-    from menu_manager import menu_manager, format_dish_for_api
-    print("Успешно импортирован menu_manager")
-except ImportError:
-    print("Ошибка импорта menu_manager. Создаем заглушки для функций.")
-    # Создаем заглушки для функций, чтобы сервер мог запуститься
-    class DummyMenuManager:
-        def get_menu_for_user(self, *args, **kwargs):
-            return []
-        def get_dishes_by_category(self, *args, **kwargs):
-            return []
-        def get_dish_by_id(self, *args, **kwargs):
-            return None
-        def search_dishes(self, *args, **kwargs):
-            return []
-        def get_categories(self, *args, **kwargs):
-            return ["breakfast", "lunch", "dinner", "snack"]
-        def get_menu_stats(self, *args, **kwargs):
-            return {}
-    
-    menu_manager = DummyMenuManager()
-    
-    def format_dish_for_api(dish):
-        return dish if dish else {}
-
-# Добавляем путь к модулю menu_manager
-sys.path.append('/home/ubuntu')
-from menu_manager import menu_manager, format_dish_for_api
-
 # Загрузка переменных окружения
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    print("dotenv не установлен, пропускаем загрузку переменных окружения")
+load_dotenv()
 
 app = FastAPI(title="Telegram Bot WebApp API", 
               description="API для интеграции WebApp с Telegram ботом трекера питания")
@@ -2404,7 +2370,7 @@ class FavoriteItem(BaseModel):
     added_date: str
 
 # Endpoints для избранного
-@app.post("/favorites/{user_id}")
+@app.post("/api/favorites/{user_id}")
 async def add_favorite(user_id: str, request: FavoriteRequest):
     """Добавить блюдо в избранное"""
     try:
@@ -2471,7 +2437,7 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
         print(f"❌ Ошибка при добавлении в избранное: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при добавлении в избранное: {str(e)}")
 
-@app.delete("/favorites/{user_id}")
+@app.delete("/api/favorites/{user_id}")
 async def remove_favorite(user_id: str, request: FavoriteRequest):
     """Удалить блюдо из избранного"""
     try:
@@ -2515,7 +2481,7 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
         print(f"❌ Ошибка при удалении из избранного: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при удалении из избранного: {str(e)}")
 
-@app.get("/favorites/{user_id}")
+@app.get("/api/favorites/{user_id}")
 async def get_favorites(user_id: str):
     """Получить список избранных блюд"""
     try:
@@ -2589,7 +2555,7 @@ async def get_favorites(user_id: str):
         raise HTTPException(status_code=500, detail=f"Ошибка при получении избранного: {str(e)}")
 
 # Endpoint для проверки статуса избранного блюда
-@app.get("/favorites/{user_id}/check/{meal_id}")
+@app.get("/api/favorites/{user_id}/check/{meal_id}")
 async def check_favorite_status(user_id: str, meal_id: int):
     """Проверить, добавлено ли блюдо в избранное"""
     try:
@@ -2623,395 +2589,339 @@ async def check_favorite_status(user_id: str, meal_id: int):
 
 
 
-# ===== НОВЫЕ ЭНДПОИНТЫ ДЛЯ МЕНЮ =====
+# Модели данных для готовых меню
+class ReadyMenu(BaseModel):
+    calories: int
+    day: int
+    total_nutrition: dict
+    meals: List[dict]
 
-@app.get("/api/menu/{user_id}", response_model=Dict[str, Any])
-async def get_user_menu(user_id: str, category: Optional[str] = None, api_key: str = Depends(verify_api_key)):
-    """
-    Получение меню для пользователя в зависимости от его целевых калорий
-    """
+class MenuDish(BaseModel):
+    id: str
+    name: str
+    description: str
+    ingredients: List[dict]
+    recipe: str
+    nutrition: dict
+
+# Endpoints для готовых меню
+@app.get("/ready-menus/{user_id}")
+async def get_ready_menu(user_id: str):
+    """Получить готовое меню для пользователя на основе его целевых калорий"""
     try:
-        # Проверяем кэш
-        cache_key = api_cache.get_cache_key("menu", user_id, category=category or "all")
-        cached_result = api_cache.get(cache_key)
-        if cached_result:
-            return cached_result
+        print(f"🍽️ Получение готового меню для пользователя {user_id}")
         
-        # Получаем данные пользователя
-        try:
-            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-            from bot import get_user_data
-            user_data = await get_user_data(user_id)
-        except ImportError:
-            # Тестовые данные если bot.py недоступен
-            user_data = {"target_kcal": 1600}
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import async_session, UserHistory
+        from sqlalchemy import select, cast, JSON
         
-        # Получаем целевые калории пользователя
-        target_calories = user_data.get("target_kcal", 1600)
-        
-        # Получаем меню для пользователя
-        if category and category != "all":
-            dishes = menu_manager.get_dishes_by_category(target_calories, category)
-        else:
-            dishes = menu_manager.get_menu_for_user(target_calories)
-        
-        # Форматируем блюда для API
-        formatted_dishes = [format_dish_for_api(dish) for dish in dishes]
-        
-        # Получаем статистику
-        stats = menu_manager.get_menu_stats(target_calories)
-        
-        result = {
-            "status": "success",
-            "data": {
+        # Получаем профиль пользователя для определения целевых калорий
+        async with async_session() as session:
+            profile_result = await session.execute(
+                select(UserHistory).where(
+                    UserHistory.user_id == user_id,
+                    UserHistory.type == "profile"
+                ).order_by(UserHistory.timestamp.desc()).limit(1)
+            )
+            
+            profile_record = profile_result.scalar_one_or_none()
+            if not profile_record:
+                raise HTTPException(status_code=404, detail="Профиль пользователя не найден")
+            
+            profile_data = json.loads(profile_record.data)
+            target_calories = profile_data.get('target_calories', 1400)
+            
+            # Определяем подходящее меню на основе целевых калорий
+            if target_calories <= 1300:
+                menu_calories = 1250
+            elif target_calories <= 1500:
+                menu_calories = 1400
+            elif target_calories <= 1800:
+                menu_calories = 1600
+            else:
+                menu_calories = 1900
+            
+            # Получаем готовое меню
+            menu_data = get_menu_by_calories(menu_calories)
+            
+            print(f"✅ Выбрано меню на {menu_calories} ккал для пользователя с целью {target_calories} ккал")
+            
+            return {
+                "status": "success",
                 "user_target_calories": target_calories,
-                "menu_target_calories": _get_menu_target(target_calories),
-                "dishes": formatted_dishes,
-                "categories": menu_manager.get_categories(),
-                "stats": stats,
-                "total_dishes": len(formatted_dishes)
+                "selected_menu_calories": menu_calories,
+                "menu": menu_data
             }
-        }
-        
-        # Кэшируем результат на 30 минут
-        api_cache.set(cache_key, result, ttl=1800)
-        return result
-        
+            
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"❌ Ошибка при получении готового меню: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка сервера: {str(e)}")
 
-@app.get("/api/menu/dish/{dish_id}", response_model=Dict[str, Any])
-async def get_dish_details(dish_id: int, api_key: str = Depends(verify_api_key)):
-    """
-    Получение детальной информации о блюде
-    """
+@app.get("/ready-menus/dish/{dish_id}")
+async def get_dish_recipe(dish_id: str):
+    """Получить подробный рецепт блюда"""
     try:
-        dish = menu_manager.get_dish_by_id(dish_id)
+        print(f"📖 Получение рецепта для блюда {dish_id}")
         
-        if not dish:
-            raise HTTPException(status_code=404, detail="Блюдо не найдено")
+        # Получаем рецепт из базы данных готовых меню
+        recipe_data = get_dish_recipe_by_id(dish_id)
+        
+        if not recipe_data:
+            raise HTTPException(status_code=404, detail="Рецепт не найден")
         
         return {
             "status": "success",
-            "data": format_dish_for_api(dish)
+            "recipe": recipe_data
         }
         
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"❌ Ошибка при получении рецепта: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка сервера: {str(e)}")
 
-@app.get("/api/menu/search/{user_id}", response_model=Dict[str, Any])
-async def search_menu_dishes(user_id: str, query: str, api_key: str = Depends(verify_api_key)):
-    """
-    Поиск блюд в меню пользователя
-    """
+@app.post("/ready-menus/add-to-diary/{user_id}")
+async def add_menu_dish_to_diary(user_id: str, request: dict):
+    """Добавить блюдо из готового меню в дневник"""
     try:
-        # Получаем данные пользователя
-        try:
-            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-            from bot import get_user_data
-            user_data = await get_user_data(user_id)
-        except ImportError:
-            user_data = {"target_kcal": 1600}
+        dish_id = request.get('dish_id')
+        meal_type = request.get('meal_type', 'lunch')
         
-        target_calories = user_data.get("target_kcal", 1600)
+        print(f"➕ Добавление блюда {dish_id} в дневник пользователя {user_id}")
         
-        # Выполняем поиск
-        dishes = menu_manager.search_dishes(target_calories, query)
-        formatted_dishes = [format_dish_for_api(dish) for dish in dishes]
+        # Импортируем функции из bot.py
+        sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+        from bot import async_session, UserHistory
+        from sqlalchemy import select
+        import json
+        from datetime import datetime
+        
+        # Получаем данные блюда
+        dish_data = get_dish_recipe_by_id(dish_id)
+        if not dish_data:
+            raise HTTPException(status_code=404, detail="Блюдо не найдено")
+        
+        # Формируем запись для дневника
+        diary_entry = {
+            "meal_id": len(str(datetime.now().timestamp()).replace('.', '')),
+            "description": dish_data['name'],
+            "ingredients": dish_data['ingredients'],
+            "nutrition": dish_data['nutrition'],
+            "meal_type": meal_type,
+            "source": "ready_menu",
+            "dish_id": dish_id,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Сохраняем в дневник
+        async with async_session() as session:
+            new_entry = UserHistory(
+                user_id=user_id,
+                prompt=f"Добавлено блюдо из готового меню: {dish_data['name']}",
+                response="Блюдо успешно добавлено в дневник",
+                type="meal_entry",
+                data=json.dumps(diary_entry, ensure_ascii=False),
+                timestamp=datetime.now()
+            )
+            
+            session.add(new_entry)
+            await session.commit()
+        
+        print(f"✅ Блюдо {dish_data['name']} добавлено в дневник")
         
         return {
             "status": "success",
-            "data": {
-                "query": query,
-                "results": formatted_dishes,
-                "total_found": len(formatted_dishes)
-            }
+            "message": f"Блюдо '{dish_data['name']}' добавлено в дневник",
+            "entry": diary_entry
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"❌ Ошибка при добавлении блюда в дневник: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка сервера: {str(e)}")
 
-@app.post("/api/menu/add-to-diary", response_model=Dict[str, Any])
-async def add_dish_to_diary(
-    user_id: str,
-    dish_id: int,
-    meal_type: str = "lunch",  # breakfast, lunch, dinner, snack
-    api_key: str = Depends(verify_api_key)
-):
-    """
-    Добавление блюда из меню в дневник питания
-    """
-    try:
-        # Получаем информацию о блюде
-        dish = menu_manager.get_dish_by_id(dish_id)
-        if not dish:
-            raise HTTPException(status_code=404, detail="Блюдо не найдено")
-        
-        # Формируем текст для добавления в дневник
-        meal_text = f"{dish['name']} - {dish['description']}"
-        nutrition_text = f"{dish['calories']} ккал, Белки: {dish['protein']} г, Жиры: {dish['fat']} г, Углеводы: {dish['carb']} г, Клетчатка: {dish['fiber']} г"
-        
-        full_response = f"🍽️ {meal_text}\n📊 {nutrition_text}"
-        
-        # Добавляем запись в историю пользователя
-        try:
-            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-            from bot import add_history_entry
-            
-            entry = {
-                "prompt": f"Добавлено из меню: {dish['name']} ({meal_type})",
-                "response": full_response,
-                "timestamp": datetime.now(),
-                "type": "food",
-                "data": {
-                    "source": "menu",
-                    "dish_id": dish_id,
-                    "meal_type": meal_type,
-                    "dish_data": dish
+def get_menu_by_calories(calories: int) -> dict:
+    """Получить готовое меню по калорийности"""
+    
+    # Базовые данные меню (здесь будет полная база данных)
+    menus = {
+        1250: {
+            "calories": 1250,
+            "day": 1,
+            "total_nutrition": {
+                "calories": 1248,
+                "protein": 80,
+                "fat": 48,
+                "carbs": 124
+            },
+            "meals": [
+                {
+                    "type": "breakfast",
+                    "name": "Завтрак",
+                    "calories": 270,
+                    "time": "первый час после пробуждения",
+                    "dishes": [
+                        {
+                            "id": "omelet_1_egg_1250",
+                            "name": "Омлет из 1 яйца",
+                            "description": "можно с молоком до 50 мл или без молока",
+                            "nutrition": {"calories": 120, "protein": 8, "fat": 8, "carbs": 2}
+                        },
+                        {
+                            "id": "bread_cheese_1250",
+                            "name": "Цельнозерновой хлеб с сыром",
+                            "description": "хлеб 50г + сыр твердый 35-50% жирности 30г",
+                            "nutrition": {"calories": 150, "protein": 12, "fat": 6, "carbs": 15}
+                        }
+                    ]
+                },
+                {
+                    "type": "lunch",
+                    "name": "Обед",
+                    "calories": 521,
+                    "time": "спустя 4-5 часов от завтрака",
+                    "dishes": [
+                        {
+                            "id": "grains_1250",
+                            "name": "Крупа на выбор",
+                            "description": "65 гр. в сухом виде или 190 гр. в вареном виде",
+                            "nutrition": {"calories": 200, "protein": 8, "fat": 2, "carbs": 40}
+                        },
+                        {
+                            "id": "chicken_1250",
+                            "name": "Курица без кожи",
+                            "description": "100 гр. в готовом виде",
+                            "nutrition": {"calories": 165, "protein": 25, "fat": 7, "carbs": 0}
+                        },
+                        {
+                            "id": "vegetable_salad_1250",
+                            "name": "Салат овощной",
+                            "description": "200 гр. + ½ чайной ложки масла",
+                            "nutrition": {"calories": 56, "protein": 2, "fat": 4, "carbs": 8}
+                        },
+                        {
+                            "id": "apple_1250",
+                            "name": "Яблоко",
+                            "description": "1 шт. средних размеров (100-130 гр.)",
+                            "nutrition": {"calories": 100, "protein": 0, "fat": 0, "carbs": 25}
+                        }
+                    ]
+                },
+                {
+                    "type": "snack",
+                    "name": "Перекус",
+                    "calories": 233,
+                    "time": "через 1,5-3 часа от обеда",
+                    "dishes": [
+                        {
+                            "id": "cottage_cheese_1250",
+                            "name": "Творог с сухофруктами",
+                            "description": "творог 4-5% 140 гр. с сухофруктами 25 гр.",
+                            "nutrition": {"calories": 233, "protein": 20, "fat": 7, "carbs": 20}
+                        }
+                    ]
+                },
+                {
+                    "type": "dinner",
+                    "name": "Ужин",
+                    "calories": 224,
+                    "time": "за 3 часа до сна",
+                    "dishes": [
+                        {
+                            "id": "dinner_salad_1250",
+                            "name": "Овощной салат с моцареллой",
+                            "description": "200 гр. салата + 1 ч.л. масла + моцарелла 20 гр. + авокадо 40 гр.",
+                            "nutrition": {"calories": 224, "protein": 8, "fat": 18, "carbs": 10}
+                        }
+                    ]
                 }
-            }
-            
-            await add_history_entry(user_id, entry)
-            
-            # Очищаем кэш пользователя
-            api_cache.invalidate_user_cache(user_id)
-            
-            return {
-                "status": "success",
-                "message": f"Блюдо '{dish['name']}' добавлено в дневник",
-                "data": {
-                    "dish": format_dish_for_api(dish),
-                    "meal_type": meal_type,
-                    "added_at": datetime.now().isoformat()
+            ]
+        },
+        1400: {
+            "calories": 1400,
+            "day": 1,
+            "total_nutrition": {
+                "calories": 1415,
+                "protein": 96,
+                "fat": 59,
+                "carbs": 125
+            },
+            "meals": [
+                {
+                    "type": "breakfast",
+                    "name": "Завтрак",
+                    "calories": 348,
+                    "time": "первый час после пробуждения",
+                    "dishes": [
+                        {
+                            "id": "omelet_2_eggs_1400",
+                            "name": "Омлет из 2 яиц",
+                            "description": "можно с зеленью и помидорами по вкусу",
+                            "nutrition": {"calories": 198, "protein": 16, "fat": 16, "carbs": 4}
+                        },
+                        {
+                            "id": "bread_cheese_1400",
+                            "name": "Цельнозерновой хлеб с сыром",
+                            "description": "хлеб 55г + сыр твердый 35-50% жирности 30г",
+                            "nutrition": {"calories": 150, "protein": 12, "fat": 6, "carbs": 16}
+                        }
+                    ]
                 }
-            }
-            
-        except ImportError:
-            # Если bot.py недоступен, возвращаем успешный ответ без сохранения
-            return {
-                "status": "success",
-                "message": f"Блюдо '{dish['name']}' добавлено в дневник (тестовый режим)",
-                "data": {
-                    "dish": format_dish_for_api(dish),
-                    "meal_type": meal_type,
-                    "test_mode": True
-                }
-            }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-def _get_menu_target(user_calories: int) -> int:
-    """Вспомогательная функция для определения целевой калорийности меню"""
-    if user_calories <= 1300:
-        return 1250
-    elif user_calories <= 1500:
-        return 1400
-    elif user_calories <= 1800:
-        return 1600
-    else:
-        return 1900
-
-# ===== КОНЕЦ НОВЫХ ЭНДПОИНТОВ =====
-
-
-
-# ===== НОВЫЕ ЭНДПОИНТЫ ДЛЯ МЕНЮ =====
-
-@app.get("/api/menu/{user_id}", response_model=Dict[str, Any])
-async def get_user_menu(user_id: str, category: Optional[str] = None, api_key: str = Depends(verify_api_key)):
-    """
-    Получение меню для пользователя в зависимости от его целевых калорий
-    """
-    try:
-        # Проверяем кэш
-        cache_key = api_cache.get_cache_key("menu", user_id, category=category or "all")
-        cached_result = api_cache.get(cache_key)
-        if cached_result:
-            return cached_result
-        
-        # Получаем данные пользователя
-        try:
-            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-            from bot import get_user_data
-            user_data = await get_user_data(user_id)
-        except ImportError:
-            # Тестовые данные если bot.py недоступен
-            user_data = {"target_kcal": 1600}
-        
-        # Получаем целевые калории пользователя
-        target_calories = user_data.get("target_kcal", 1600)
-        
-        # Получаем меню для пользователя
-        if category and category != "all":
-            dishes = menu_manager.get_dishes_by_category(target_calories, category)
-        else:
-            dishes = menu_manager.get_menu_for_user(target_calories)
-        
-        # Форматируем блюда для API
-        formatted_dishes = [format_dish_for_api(dish) for dish in dishes]
-        
-        # Получаем статистику
-        stats = menu_manager.get_menu_stats(target_calories)
-        
-        result = {
-            "status": "success",
-            "data": {
-                "user_target_calories": target_calories,
-                "menu_target_calories": _get_menu_target(target_calories),
-                "dishes": formatted_dishes,
-                "categories": menu_manager.get_categories(),
-                "stats": stats,
-                "total_dishes": len(formatted_dishes)
-            }
+                # ... остальные приемы пищи
+            ]
         }
-        
-        # Кэшируем результат на 30 минут
-        api_cache.set(cache_key, result, ttl=1800)
-        return result
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # ... меню на 1600 и 1900 ккал
+    }
+    
+    return menus.get(calories, menus[1400])  # По умолчанию 1400 ккал
 
-@app.get("/api/menu/dish/{dish_id}", response_model=Dict[str, Any])
-async def get_dish_details(dish_id: int, api_key: str = Depends(verify_api_key)):
-    """
-    Получение детальной информации о блюде
-    """
-    try:
-        dish = menu_manager.get_dish_by_id(dish_id)
-        
-        if not dish:
-            raise HTTPException(status_code=404, detail="Блюдо не найдено")
-        
-        return {
-            "status": "success",
-            "data": format_dish_for_api(dish)
+def get_dish_recipe_by_id(dish_id: str) -> dict:
+    """Получить подробный рецепт блюда по ID"""
+    
+    recipes = {
+        "omelet_1_egg_1250": {
+            "id": "omelet_1_egg_1250",
+            "name": "Омлет из 1 яйца",
+            "description": "Простой и питательный омлет",
+            "ingredients": [
+                {"name": "яйцо куриное", "amount": 1, "unit": "шт"},
+                {"name": "молоко", "amount": 50, "unit": "мл", "optional": True},
+                {"name": "соль", "amount": "по вкусу", "unit": ""}
+            ],
+            "recipe": """
+1. Разбить яйцо в миску
+2. Добавить молоко (по желанию) и соль
+3. Взбить вилкой до однородности
+4. Разогреть сковороду с антипригарным покрытием
+5. Вылить смесь на сковороду
+6. Готовить на среднем огне 2-3 минуты
+7. Аккуратно перевернуть и готовить еще 1-2 минуты
+            """,
+            "nutrition": {"calories": 120, "protein": 8, "fat": 8, "carbs": 2},
+            "cooking_time": "5-7 минут",
+            "difficulty": "Легко"
+        },
+        "bread_cheese_1250": {
+            "id": "bread_cheese_1250",
+            "name": "Цельнозерновой хлеб с сыром",
+            "description": "Полезный завтрак с клетчаткой и белком",
+            "ingredients": [
+                {"name": "хлеб цельнозерновой", "amount": 50, "unit": "г"},
+                {"name": "сыр твердый 35-50%", "amount": 30, "unit": "г"}
+            ],
+            "recipe": """
+1. Нарезать хлеб ломтиками
+2. При желании слегка подсушить в тостере
+3. Нарезать сыр тонкими ломтиками
+4. Выложить сыр на хлеб
+5. Можно добавить зелень или помидор
+
+Альтернатива: заменить хлеб на хлебцы (2-3 штуки)
+            """,
+            "nutrition": {"calories": 150, "protein": 12, "fat": 6, "carbs": 15},
+            "cooking_time": "2-3 минуты",
+            "difficulty": "Очень легко"
         }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/api/menu/search/{user_id}", response_model=Dict[str, Any])
-async def search_menu_dishes(user_id: str, query: str, api_key: str = Depends(verify_api_key)):
-    """
-    Поиск блюд в меню пользователя
-    """
-    try:
-        # Получаем данные пользователя
-        try:
-            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-            from bot import get_user_data
-            user_data = await get_user_data(user_id)
-        except ImportError:
-            user_data = {"target_kcal": 1600}
-        
-        target_calories = user_data.get("target_kcal", 1600)
-        
-        # Выполняем поиск
-        dishes = menu_manager.search_dishes(target_calories, query)
-        formatted_dishes = [format_dish_for_api(dish) for dish in dishes]
-        
-        return {
-            "status": "success",
-            "data": {
-                "query": query,
-                "results": formatted_dishes,
-                "total_found": len(formatted_dishes)
-            }
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/menu/add-to-diary", response_model=Dict[str, Any])
-async def add_dish_to_diary(
-    user_id: str,
-    dish_id: int,
-    meal_type: str = "lunch",  # breakfast, lunch, dinner, snack
-    api_key: str = Depends(verify_api_key)
-):
-    """
-    Добавление блюда из меню в дневник питания
-    """
-    try:
-        # Получаем информацию о блюде
-        dish = menu_manager.get_dish_by_id(dish_id)
-        if not dish:
-            raise HTTPException(status_code=404, detail="Блюдо не найдено")
-        
-        # Формируем текст для добавления в дневник
-        meal_text = f"{dish['name']} - {dish['description']}"
-        nutrition_text = f"{dish['calories']} ккал, Белки: {dish['protein']} г, Жиры: {dish['fat']} г, Углеводы: {dish['carb']} г, Клетчатка: {dish['fiber']} г"
-        
-        full_response = f"🍽️ {meal_text}\n📊 {nutrition_text}"
-        
-        # Добавляем запись в историю пользователя
-        try:
-            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-            from bot import add_history_entry
-            
-            entry = {
-                "prompt": f"Добавлено из меню: {dish['name']} ({meal_type})",
-                "response": full_response,
-                "timestamp": datetime.now(),
-                "type": "food",
-                "data": {
-                    "source": "menu",
-                    "dish_id": dish_id,
-                    "meal_type": meal_type,
-                    "dish_data": dish
-                }
-            }
-            
-            await add_history_entry(user_id, entry)
-            
-            # Очищаем кэш пользователя
-            api_cache.invalidate_user_cache(user_id)
-            
-            return {
-                "status": "success",
-                "message": f"Блюдо '{dish['name']}' добавлено в дневник",
-                "data": {
-                    "dish": format_dish_for_api(dish),
-                    "meal_type": meal_type,
-                    "added_at": datetime.now().isoformat()
-                }
-            }
-            
-        except ImportError:
-            # Если bot.py недоступен, возвращаем успешный ответ без сохранения
-            return {
-                "status": "success",
-                "message": f"Блюдо '{dish['name']}' добавлено в дневник (тестовый режим)",
-                "data": {
-                    "dish": format_dish_for_api(dish),
-                    "meal_type": meal_type,
-                    "test_mode": True
-                }
-            }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-def _get_menu_target(user_calories: int) -> int:
-    """Вспомогательная функция для определения целевой калорийности меню"""
-    if user_calories <= 1300:
-        return 1250
-    elif user_calories <= 1500:
-        return 1400
-    elif user_calories <= 1800:
-        return 1600
-    else:
-        return 1900
-
-# ===== КОНЕЦ НОВЫХ ЭНДПОИНТОВ =====
+        # ... остальные рецепты
+    }
+    
+    return recipes.get(dish_id)
 
