@@ -2379,21 +2379,34 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import async_session, UserHistory
-        from sqlalchemy import select, cast, JSON
+        from sqlalchemy import select, cast, JSON, String
         
-        # Получаем данные о блюде из meal_entries
+        # Получаем данные о блюде из истории пользователя
         async with async_session() as session:
-            # Проверяем существование блюда
-            meal_result = await session.execute(
-                select(UserHistory).where(
-                    UserHistory.id == request.meal_id,
-                    UserHistory.user_id == user_id,
-                    UserHistory.type == "meal"
-                )
-            )
-            meal_data = meal_result.scalar_one_or_none()
+            # Получаем историю пользователя для поиска блюда
+            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+            from bot import get_history
             
-            if not meal_data:
+            print(f"🔍 Получение истории для пользователя {user_id}...")
+            history = await get_history(user_id)
+            print(f"📊 Получено записей в истории: {len(history)}")
+            
+            # Логируем первые несколько записей для отладки
+            meal_entries = [entry for entry in history if entry.get("type") == "food"]
+            print(f"🍽️ Найдено записей типа 'food': {len(meal_entries)}")
+            
+            # Ищем блюдо в истории по индексу (meal_id это индекс в массиве блюд)
+            print(f"🔎 Ищем блюдо с индексом: {request.meal_id}")
+            meal_data = None
+            
+            # meal_id в дневнике - это индекс блюда в массиве, начиная с 1
+            meal_index = request.meal_id - 1  # Преобразуем в 0-based индекс
+            
+            if 0 <= meal_index < len(meal_entries):
+                meal_data = meal_entries[meal_index]
+                print(f"✅ Блюдо найдено по индексу {meal_index}!")
+            else:
+                print(f"❌ Индекс {meal_index} вне диапазона. Доступно блюд: {len(meal_entries)}")
                 raise HTTPException(status_code=404, detail="Блюдо не найдено")
             
             # Проверяем, не добавлено ли уже в избранное
@@ -2401,7 +2414,7 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    UserHistory.data.op('->>')('meal_id') == str(request.meal_id)
+                    cast(UserHistory.data, String).contains('{"meal_id": ' + str(request.meal_id) + '}')
                 )
             )
             
@@ -2411,14 +2424,14 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
             # Добавляем в избранное
             favorite_data = {
                 "meal_id": request.meal_id,
-                "added_date": datetime.now(timezone.utc).isoformat()
+                "added_date": datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
             }
             
             new_favorite = UserHistory(
                 user_id=user_id,
                 type="favorite",
                 data=json.dumps(favorite_data),
-                timestamp=datetime.now(timezone.utc)
+                timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
             )
             
             session.add(new_favorite)
@@ -2446,7 +2459,7 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import async_session, UserHistory
-        from sqlalchemy import select, delete, cast, JSON
+        from sqlalchemy import select, delete, cast, JSON, String
         
         async with async_session() as session:
             # Ищем запись в избранном
@@ -2454,7 +2467,7 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    UserHistory.data.op('->>')('meal_id') == str(request.meal_id)
+                    cast(UserHistory.data, String).contains('{"meal_id": ' + str(request.meal_id) + '}')
                 )
             )
             
@@ -2512,12 +2525,15 @@ async def get_favorites(user_id: str):
                 favorite_data = json.loads(favorite_record.data)
                 meal_id = favorite_data.get("meal_id")
                 
-                # Ищем соответствующее блюдо в истории
+                # Ищем соответствующее блюдо в истории по индексу
                 meal_entry = None
-                for entry in history:
-                    if entry.get("id") == meal_id and entry.get("type") == "meal":
-                        meal_entry = entry
-                        break
+                meal_entries = [entry for entry in history if entry.get("type") == "food"]
+                
+                # meal_id это индекс блюда в массиве, начиная с 1
+                meal_index = meal_id - 1  # Преобразуем в 0-based индекс
+                
+                if 0 <= meal_index < len(meal_entries):
+                    meal_entry = meal_entries[meal_index]
                 
                 if meal_entry:
                     # Парсим данные блюда
@@ -2564,7 +2580,7 @@ async def check_favorite_status(user_id: str, meal_id: int):
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import async_session, UserHistory
-        from sqlalchemy import select, cast, JSON
+        from sqlalchemy import select, cast, JSON, String
         
         async with async_session() as session:
             # Проверяем наличие в избранном
@@ -2572,7 +2588,7 @@ async def check_favorite_status(user_id: str, meal_id: int):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    UserHistory.data.op('->>')('meal_id') == str(meal_id)
+                    cast(UserHistory.data, String).contains('{"meal_id": ' + str(meal_id) + '}')
                 )
             )
             
