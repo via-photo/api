@@ -2392,7 +2392,9 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
             print(f"📊 Получено записей в истории: {len(history)}")
             
             # Логируем первые несколько записей для отладки
-            meal_entries = [entry for entry in history if entry.get("type") == "food"]
+            # Сортируем записи так же как в API - по времени по возрастанию
+            meal_entries = sorted([entry for entry in history if entry.get("type") == "food"], 
+                                key=lambda x: x['timestamp'])
             print(f"🍽️ Найдено записей типа 'food': {len(meal_entries)}")
             
             # Ищем блюдо в истории по индексу (meal_id это индекс в массиве блюд)
@@ -2467,7 +2469,7 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    cast(UserHistory.data, String).contains('{"meal_id": ' + str(request.meal_id) + '}')
+                    UserHistory.data.op('->>')('meal_id') == str(request.meal_id)
                 )
             )
             
@@ -2527,7 +2529,9 @@ async def get_favorites(user_id: str):
                 
                 # Ищем соответствующее блюдо в истории по индексу
                 meal_entry = None
-                meal_entries = [entry for entry in history if entry.get("type") == "food"]
+                # Сортируем записи так же как в API - по времени по возрастанию
+                meal_entries = sorted([entry for entry in history if entry.get("type") == "food"], 
+                                    key=lambda x: x['timestamp'])
                 
                 # meal_id это индекс блюда в массиве, начиная с 1
                 meal_index = meal_id - 1  # Преобразуем в 0-based индекс
