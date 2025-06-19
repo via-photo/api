@@ -2505,8 +2505,30 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
             # Если дата не передана, ищем среди всех записей избранного
             print(f"📅 Дата не передана, ищем среди всех записей избранного")
             
-            # Сначала найдем запись в избранном
+            # Сначала найдем запись в избранном с улучшенным поиском
             async with async_session() as session:
+                # Получаем все записи избранного для отладки
+                all_favorites_result = await session.execute(
+                    select(UserHistory).where(
+                        UserHistory.user_id == user_id,
+                        UserHistory.type == "favorite"
+                    )
+                )
+                all_favorites = all_favorites_result.scalars().all()
+                
+                print(f"🔍 Всего записей избранного: {len(all_favorites)}")
+                for fav in all_favorites:
+                    try:
+                        fav_data = json.loads(fav.data) if isinstance(fav.data, str) else fav.data
+                        meal_id_in_db = fav_data.get("meal_id")
+                        print(f"🔍 Запись избранного: meal_id={meal_id_in_db} (тип: {type(meal_id_in_db)})")
+                    except Exception as e:
+                        print(f"🔍 Ошибка парсинга записи: {e}")
+                
+                # Пробуем разные варианты поиска
+                favorite_record = None
+                
+                # Вариант 1: поиск как строка
                 favorite_result = await session.execute(
                     select(UserHistory).where(
                         UserHistory.user_id == user_id,
@@ -2514,8 +2536,32 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
                         UserHistory.data.op('->>')('meal_id') == str(request.meal_id)
                     )
                 )
-                
                 favorite_record = favorite_result.scalar_one_or_none()
+                
+                if not favorite_record:
+                    print(f"🔍 Поиск как строка не дал результата, пробуем как число")
+                    # Вариант 2: поиск как число
+                    favorite_result = await session.execute(
+                        select(UserHistory).where(
+                            UserHistory.user_id == user_id,
+                            UserHistory.type == "favorite",
+                            UserHistory.data.op('->>')('meal_id') == str(request.meal_id)
+                        )
+                    )
+                    favorite_record = favorite_result.scalar_one_or_none()
+                
+                if not favorite_record:
+                    print(f"🔍 Поиск через JSON не дал результата, пробуем через LIKE")
+                    # Вариант 3: поиск через LIKE для совместимости
+                    favorite_result = await session.execute(
+                        select(UserHistory).where(
+                            UserHistory.user_id == user_id,
+                            UserHistory.type == "favorite",
+                            cast(UserHistory.data, String).contains(f'"meal_id": {request.meal_id}')
+                        )
+                    )
+                    favorite_record = favorite_result.scalar_one_or_none()
+                
                 if not favorite_record:
                     print(f"❌ Блюдо с meal_id {request.meal_id} не найдено в избранном")
                     raise HTTPException(status_code=404, detail="Блюдо не найдено в избранном")
