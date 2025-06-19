@@ -2369,7 +2369,6 @@ class FavoriteItem(BaseModel):
     products: Optional[List[Dict[str, Any]]] = None
     added_date: str
 
-# Endpoints для избранного
 @app.post("/favorites/{user_id}")
 async def add_favorite(user_id: str, request: FavoriteRequest):
     """Добавить блюдо в избранное"""
@@ -2378,62 +2377,64 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
         
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-        from bot import async_session, UserHistory
-        from sqlalchemy import select, cast, JSON, String
+        from bot import async_session, UserHistory, get_user_data
+        from sqlalchemy import select, cast, JSON
         
-        # Получаем данные о блюде из истории пользователя
+        # Получаем данные дневника за сегодня (те же что показываются в UI)
+        print(f"🔍 Получение данных дневника для пользователя {user_id}...")
+        
+        # Получаем данные за сегодня
+        target_date = datetime.now().strftime("%Y-%m-%d")
+        user_data = await get_user_data(user_id, target_date)
+        
+        if not user_data or 'meals' not in user_data:
+            raise HTTPException(status_code=404, detail="Данные дневника не найдены")
+        
+        meals = user_data['meals']
+        print(f"🍽️ Найдено блюд в дневнике за сегодня: {len(meals)}")
+        
+        # Проверяем что meal_id в пределах доступных блюд
+        if request.meal_id < 1 or request.meal_id > len(meals):
+            print(f"❌ meal_id {request.meal_id} вне диапазона. Доступно блюд: {len(meals)}")
+            raise HTTPException(status_code=404, detail="Блюдо не найдено")
+        
+        # Получаем блюдо по индексу (meal_id начинается с 1)
+        meal_data = meals[request.meal_id - 1]
+        print(f"✅ Блюдо найдено: {meal_data.get('description', 'Без описания')[:50]}...")
+
         async with async_session() as session:
-            # Получаем историю пользователя для поиска блюда
-            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-            from bot import get_history
-            
-            print(f"🔍 Получение истории для пользователя {user_id}...")
-            history = await get_history(user_id)
-            print(f"📊 Получено записей в истории: {len(history)}")
-            
-            # Логируем первые несколько записей для отладки
-            # Сортируем записи так же как в API - по времени по возрастанию
-            meal_entries = sorted([entry for entry in history if entry.get("type") == "food"], 
-                                key=lambda x: x['timestamp'])
-            print(f"🍽️ Найдено записей типа 'food': {len(meal_entries)}")
-            
-            # Ищем блюдо в истории по индексу (meal_id это индекс в массиве блюд)
-            print(f"🔎 Ищем блюдо с индексом: {request.meal_id}")
-            meal_data = None
-            
-            # meal_id в дневнике - это индекс блюда в массиве, начиная с 1
-            meal_index = request.meal_id - 1  # Преобразуем в 0-based индекс
-            
-            if 0 <= meal_index < len(meal_entries):
-                meal_data = meal_entries[meal_index]
-                print(f"✅ Блюдо найдено по индексу {meal_index}!")
-            else:
-                print(f"❌ Индекс {meal_index} вне диапазона. Доступно блюд: {len(meal_entries)}")
-                raise HTTPException(status_code=404, detail="Блюдо не найдено")
-            
             # Проверяем, не добавлено ли уже в избранное
             existing_result = await session.execute(
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    cast(UserHistory.data, String).contains('{"meal_id": ' + str(request.meal_id) + '}')
+                    UserHistory.data.op('->>')('meal_id') == str(request.meal_id)
                 )
             )
             
             if existing_result.scalar_one_or_none():
                 raise HTTPException(status_code=400, detail="Блюдо уже в избранном")
             
-            # Добавляем в избранное
+            # Добавляем в избранное с полными данными блюда
             favorite_data = {
                 "meal_id": request.meal_id,
-                "added_date": datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+                "description": meal_data.get('description', 'Без описания'),
+                "time": meal_data.get('time', ''),
+                "calories": meal_data.get('calories', 0),
+                "protein": meal_data.get('protein', 0),
+                "fat": meal_data.get('fat', 0),
+                "carb": meal_data.get('carb', 0),
+                "fiber": meal_data.get('fiber', 0),
+                "image": meal_data.get('image', ''),
+                "full_response": meal_data.get('full_response', ''),
+                "added_date": datetime.now(timezone.utc).isoformat()
             }
             
             new_favorite = UserHistory(
                 user_id=user_id,
                 type="favorite",
                 data=json.dumps(favorite_data),
-                timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
+                timestamp=datetime.now(timezone.utc)
             )
             
             session.add(new_favorite)
@@ -2525,39 +2526,22 @@ async def get_favorites(user_id: str):
         for favorite_record in favorites_records:
             try:
                 favorite_data = json.loads(favorite_record.data)
-                meal_id = favorite_data.get("meal_id")
                 
-                # Ищем соответствующее блюдо в истории по индексу
-                meal_entry = None
-                # Сортируем записи так же как в API - по времени по возрастанию
-                meal_entries = sorted([entry for entry in history if entry.get("type") == "food"], 
-                                    key=lambda x: x['timestamp'])
-                
-                # meal_id это индекс блюда в массиве, начиная с 1
-                meal_index = meal_id - 1  # Преобразуем в 0-based индекс
-                
-                if 0 <= meal_index < len(meal_entries):
-                    meal_entry = meal_entries[meal_index]
-                
-                if meal_entry:
-                    # Используем кэшированные функции парсинга как в дневнике
-                    kcal, prot, fat, carb, fiber = parse_nutrition_cached(meal_entry['response'])
-                    description = parse_products_cached(meal_entry['response'])
-                    
-                    favorite_item = {
-                        "meal_id": meal_id,
-                        "description": description,
-                        "time": meal_entry['timestamp'].strftime("%H:%M"),
-                        "calories": kcal,
-                        "protein": prot,
-                        "fat": fat,
-                        "carb": carb,
-                        "fiber": fiber,
-                        "image": meal_entry.get('compressed_image', ''),
-                        "full_response": meal_entry['response'],
-                        "added_date": favorite_data.get("added_date", favorite_record.timestamp.isoformat())
-                    }
-                    favorites_list.append(favorite_item)
+                # Теперь данные уже сохранены в избранном, просто извлекаем их
+                favorite_item = {
+                    "meal_id": favorite_data.get("meal_id"),
+                    "description": favorite_data.get("description", "Описание недоступно"),
+                    "time": favorite_data.get("time", ""),
+                    "calories": favorite_data.get("calories", 0),
+                    "protein": favorite_data.get("protein", 0),
+                    "fat": favorite_data.get("fat", 0),
+                    "carb": favorite_data.get("carb", 0),
+                    "fiber": favorite_data.get("fiber", 0),
+                    "image": favorite_data.get("image", ""),
+                    "full_response": favorite_data.get("full_response", ""),
+                    "added_date": favorite_data.get("added_date", favorite_record.timestamp.isoformat())
+                }
+                favorites_list.append(favorite_item)
                     
             except Exception as e:
                 print(f"Ошибка обработки записи избранного: {e}")
