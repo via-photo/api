@@ -294,8 +294,8 @@ async def get_day_summary(user_id: str, date_str: Optional[str] = None, api_key:
                     "message": "В этот день не было добавлено ни одного блюда."
                 }
             }
-            # Кэшируем пустые данные на короткое время
-            api_cache.set(cache_key, result, ttl=180)
+            # Кэшируем пустые данные на 90 секунд (оптимизированное время)
+            api_cache.set(cache_key, result, ttl=90)
             return result
         
         # Подсчитываем общие значения
@@ -387,8 +387,8 @@ async def get_day_summary(user_id: str, date_str: Optional[str] = None, api_key:
         }
         
         result = {"status": "success", "data": summary_data}
-        # Кэшируем результат на 3 минуты
-        api_cache.set(cache_key, result, ttl=180)
+        # Оптимизированное кэширование: 90 секунд (компромисс между скоростью и нагрузкой)
+        api_cache.set(cache_key, result, ttl=90)
         return result
         
     except Exception as e:
@@ -1492,8 +1492,8 @@ async def get_diary_data(user_id: str, date_str: Optional[str] = None, api_key: 
         }
         
         result = {"status": "success", "data": diary_data}
-        # Кэшируем результат на 3 минуты
-        api_cache.set(cache_key, result, ttl=180)
+        # Оптимизированное кэширование: 90 секунд (компромисс между скоростью и нагрузкой)
+        api_cache.set(cache_key, result, ttl=90)
         return result
         
     except Exception as e:
@@ -2702,6 +2702,21 @@ async def check_favorite_status(user_id: str, meal_id: int):
         print(f"❌ Ошибка при проверке статуса избранного: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при проверке статуса: {str(e)}")
 
+# Эндпоинт для принудительного сброса кэша пользователя
+@app.post("/api/cache/clear/{user_id}")
+async def clear_user_cache(user_id: str):
+    """
+    Принудительно очищает весь кэш пользователя для мгновенного обновления данных
+    """
+    try:
+        api_cache.invalidate_user_cache(user_id)
+        return {
+            "status": "success",
+            "message": f"Кэш пользователя {user_id} очищен",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка при очистке кэша: {str(e)}")
 
 # Запуск сервера
 if __name__ == "__main__":
