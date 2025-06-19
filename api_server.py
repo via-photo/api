@@ -2380,27 +2380,49 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
         from bot import async_session, UserHistory, get_user_data
         from sqlalchemy import select, cast, JSON
         
-        # Получаем данные дневника за сегодня (те же что показываются в UI)
+        # Получаем данные дневника за сегодня используя тот же код что в /api/diary-data
         print(f"🔍 Получение данных дневника для пользователя {user_id}...")
         
-        # Получаем данные за сегодня
-        target_date = datetime.now().strftime("%Y-%m-%d")
-        user_data = await get_user_data(user_id, target_date)
+        # Импортируем функции из bot.py
+        from bot import get_user_data, get_history
         
-        if not user_data or 'meals' not in user_data:
-            raise HTTPException(status_code=404, detail="Данные дневника не найдены")
+        # Получаем данные пользователя и историю
+        user_data = await get_user_data(user_id)
+        user_offset = user_data.get("utc_offset", 0)
+        user_tz = timezone(timedelta(hours=user_offset))
         
-        meals = user_data['meals']
-        print(f"🍽️ Найдено блюд в дневнике за сегодня: {len(meals)}")
+        # Определяем дату для анализа (сегодня)
+        target_date = datetime.now(user_tz).date()
+        
+        # Получаем историю пользователя
+        history = await get_history(user_id)
+        
+        # Фильтруем записи за сегодня
+        entries_today = []
+        for entry in history:
+            if entry.get("type") == "food":
+                entry_date = entry['timestamp'].astimezone(user_tz).date()
+                if entry_date == target_date:
+                    entries_today.append(entry)
+        
+        if not entries_today:
+            raise HTTPException(status_code=404, detail="Нет блюд за сегодня")
+        
+        print(f"🍽️ Найдено блюд в дневнике за сегодня: {len(entries_today)}")
         
         # Проверяем что meal_id в пределах доступных блюд
-        if request.meal_id < 1 or request.meal_id > len(meals):
-            print(f"❌ meal_id {request.meal_id} вне диапазона. Доступно блюд: {len(meals)}")
+        if request.meal_id < 1 or request.meal_id > len(entries_today):
+            print(f"❌ meal_id {request.meal_id} вне диапазона. Доступно блюд: {len(entries_today)}")
             raise HTTPException(status_code=404, detail="Блюдо не найдено")
         
         # Получаем блюдо по индексу (meal_id начинается с 1)
-        meal_data = meals[request.meal_id - 1]
-        print(f"✅ Блюдо найдено: {meal_data.get('description', 'Без описания')[:50]}...")
+        meal_entry = entries_today[request.meal_id - 1]
+        
+        # Парсим данные блюда используя те же функции что в API
+        kcal, prot, fat, carb, fiber = parse_nutrition_cached(meal_entry['response'])
+        description = parse_products_cached(meal_entry['response'])
+        
+        print(f"✅ Блюдо найдено: {description[:50]}...")
 
         async with async_session() as session:
             # Проверяем, не добавлено ли уже в избранное
@@ -2418,15 +2440,15 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
             # Добавляем в избранное с полными данными блюда
             favorite_data = {
                 "meal_id": request.meal_id,
-                "description": meal_data.get('description', 'Без описания'),
-                "time": meal_data.get('time', ''),
-                "calories": meal_data.get('calories', 0),
-                "protein": meal_data.get('protein', 0),
-                "fat": meal_data.get('fat', 0),
-                "carb": meal_data.get('carb', 0),
-                "fiber": meal_data.get('fiber', 0),
-                "image": meal_data.get('image', ''),
-                "full_response": meal_data.get('full_response', ''),
+                "description": description,
+                "time": meal_entry['timestamp'].astimezone(user_tz).strftime("%H:%M"),
+                "calories": kcal,
+                "protein": prot,
+                "fat": fat,
+                "carb": carb,
+                "fiber": fiber,
+                "image": meal_entry.get('compressed_image', ''),
+                "full_response": meal_entry['response'],
                 "added_date": datetime.now(timezone.utc).isoformat()
             }
             
