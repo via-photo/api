@@ -2489,11 +2489,48 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
         
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-        from bot import async_session, UserHistory
+        from bot import async_session, UserHistory, get_user_data, get_history
         from sqlalchemy import select, delete, cast, JSON, String
         
+        # Получаем данные пользователя для timezone
+        user_data = await get_user_data(user_id)
+        user_offset = user_data.get("utc_offset", 0)
+        user_tz = timezone(timedelta(hours=user_offset))
+        
+        # Определяем дату для поиска
+        if request.date:
+            target_date = datetime.strptime(request.date, "%Y-%m-%d").date()
+            print(f"📅 Ищем блюдо за дату из запроса: {target_date}")
+        else:
+            target_date = datetime.now(user_tz).date()
+            print(f"📅 Ищем блюдо за сегодняшнюю дату: {target_date}")
+        
+        # Получаем историю и находим блюдо
+        history = await get_history(user_id)
+        entries_for_date = []
+        for entry in history:
+            if entry.get("type") == "food":
+                entry_date = entry['timestamp'].astimezone(user_tz).date()
+                if entry_date == target_date:
+                    entries_for_date.append(entry)
+        
+        print(f"🍽️ Найдено блюд за {target_date}: {len(entries_for_date)}")
+        
+        if not entries_for_date:
+            raise HTTPException(status_code=404, detail=f"Нет блюд за {target_date}")
+        
+        if request.meal_id < 1 or request.meal_id > len(entries_for_date):
+            raise HTTPException(status_code=404, detail="Блюдо не найдено")
+        
+        # Получаем блюдо для проверки
+        meal_entry = entries_for_date[request.meal_id - 1]
+        kcal, prot, fat, carb, fiber = parse_nutrition_cached(meal_entry['response'])
+        description = parse_products_cached(meal_entry['response'])
+        
+        print(f"🔍 Ищем в избранном блюдо: {description[:50]}...")
+
         async with async_session() as session:
-            # Ищем запись в избранном
+            # Ищем запись в избранном по meal_id и проверяем что это то же блюдо
             favorite_result = await session.execute(
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
