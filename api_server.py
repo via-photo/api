@@ -2530,7 +2530,26 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
         print(f"🔍 Ищем в избранном блюдо: {description[:50]}...")
 
         async with async_session() as session:
-            # Ищем запись в избранном по meal_id и проверяем что это то же блюдо
+            # Сначала посмотрим все записи избранного для этого пользователя
+            all_favorites_result = await session.execute(
+                select(UserHistory).where(
+                    UserHistory.user_id == user_id,
+                    UserHistory.type == "favorite"
+                )
+            )
+            all_favorites = all_favorites_result.scalars().all()
+            print(f"📊 Всего записей в избранном: {len(all_favorites)}")
+            
+            for fav in all_favorites:
+                try:
+                    fav_data = json.loads(fav.data)
+                    fav_meal_id = fav_data.get("meal_id")
+                    fav_desc = fav_data.get("description", "")[:30]
+                    print(f"   - meal_id: {fav_meal_id}, описание: {fav_desc}")
+                except:
+                    print(f"   - Ошибка парсинга данных избранного")
+            
+            # Ищем запись в избранном по meal_id
             favorite_result = await session.execute(
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
