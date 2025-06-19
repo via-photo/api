@@ -2462,7 +2462,7 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
                 user_id=user_id,
                 type="favorite",
                 data=json.dumps(favorite_data),
-                timestamp=datetime.now(timezone.utc)
+                timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
             )
             
             session.add(new_favorite)
