@@ -192,11 +192,6 @@ async def verify_api_key(x_api_key: str = Header(None)):
     # Временно отключаем строгую проверку для отладки
     return x_api_key or "debug_key"
 
-# Корневой эндпоинт
-@app.get("/")
-async def root():
-    return {"status": "success", "message": "Telegram Bot WebApp API", "timestamp": datetime.now().isoformat()}
-
 # Корневой эндпоинт API
 @app.get("/api")
 async def api_root():
@@ -2591,7 +2586,6 @@ async def check_favorite_status(user_id: str, meal_id: int):
     except Exception as e:
         print(f"❌ Ошибка при проверке статуса избранного: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при проверке статуса: {str(e)}")
-
 
 
 # Запуск сервера
