@@ -2627,3 +2627,9 @@ async def check_favorite_status(user_id: str, meal_id: int):
         print(f"❌ Ошибка при проверке статуса избранного: {e}")
         raise HTTPException(status_code=500, detail=f"Ошибка при проверке статуса: {str(e)}")
 
+
+
+# Запуск сервера
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
