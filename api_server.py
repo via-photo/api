@@ -2536,23 +2536,23 @@ async def get_favorites(user_id: str):
                     meal_entry = meal_entries[meal_index]
                 
                 if meal_entry:
-                    # Используем функцию parse_nutrition_cached как в дневнике
+                    # Простое извлечение данных как было раньше
                     response_text = meal_entry.get("response", "")
                     
+                    # Базовое извлечение описания
                     if response_text:
-                        # Парсим БЖУ из ответа
-                        kcal, prot, fat, carb, fiber = parse_nutrition_cached(response_text)
-                        
-                        # Извлекаем описание
-                        description = parse_products_cached(response_text)
-                        if not description or description == "Без описания":
+                        lines = response_text.splitlines()
+                        food_lines = [line for line in lines if line.strip().startswith(("•", "-"))]
+                        if food_lines:
+                            # Берем первую строку как описание
+                            first_line = food_lines[0]
+                            description = re.sub(r'^[•\-]\s*', '', first_line).split("–")[0].strip()
+                        else:
                             description = "Блюдо из дневника"
                     else:
-                        # Если нет response, используем заглушки
-                        kcal, prot, fat, carb, fiber = 300, 15, 10, 30, 5
                         description = "Блюдо из дневника"
                     
-                    # Извлекаем время
+                    # Простое извлечение времени
                     timestamp = meal_entry.get("timestamp")
                     if timestamp:
                         if isinstance(timestamp, str):
@@ -2566,15 +2566,16 @@ async def get_favorites(user_id: str):
                     else:
                         time_str = "12:00"
                     
+                    # Простые значения БЖУ
                     favorite_item = {
                         "meal_id": meal_id,
                         "description": description,
                         "time": time_str,
-                        "calories": kcal,
-                        "protein": float(prot),
-                        "fat": float(fat),
-                        "carb": float(carb),
-                        "fiber": float(fiber),
+                        "calories": 300,  # Заглушка
+                        "protein": 15.0,  # Заглушка
+                        "fat": 10.0,      # Заглушка
+                        "carb": 30.0,     # Заглушка
+                        "fiber": 5.0,     # Заглушка
                         "image": meal_entry.get("compressed_image", ""),
                         "products": [],
                         "added_date": favorite_data.get("added_date", favorite_record.timestamp.isoformat())
