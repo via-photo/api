@@ -192,6 +192,11 @@ async def verify_api_key(x_api_key: str = Header(None)):
     # Временно отключаем строгую проверку для отладки
     return x_api_key or "debug_key"
 
+# Корневой эндпоинт
+@app.get("/")
+async def root():
+    return {"status": "success", "message": "Telegram Bot WebApp API", "timestamp": datetime.now().isoformat()}
+
 # Корневой эндпоинт API
 @app.get("/api")
 async def api_root():
