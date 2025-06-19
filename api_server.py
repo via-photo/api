@@ -2502,8 +2502,36 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
             target_date = datetime.strptime(request.date, "%Y-%m-%d").date()
             print(f"📅 Ищем блюдо за дату из запроса: {target_date}")
         else:
-            target_date = datetime.now(user_tz).date()
-            print(f"📅 Ищем блюдо за сегодняшнюю дату: {target_date}")
+            # Если дата не передана, ищем среди всех записей избранного
+            print(f"📅 Дата не передана, ищем среди всех записей избранного")
+            
+            # Сначала найдем запись в избранном
+            async with async_session() as session:
+                favorite_result = await session.execute(
+                    select(UserHistory).where(
+                        UserHistory.user_id == user_id,
+                        UserHistory.type == "favorite",
+                        UserHistory.data.op('->>')('meal_id') == str(request.meal_id)
+                    )
+                )
+                
+                favorite_record = favorite_result.scalar_one_or_none()
+                if not favorite_record:
+                    print(f"❌ Блюдо с meal_id {request.meal_id} не найдено в избранном")
+                    raise HTTPException(status_code=404, detail="Блюдо не найдено в избранном")
+                
+                # Удаляем найденную запись
+                await session.execute(
+                    delete(UserHistory).where(UserHistory.id == favorite_record.id)
+                )
+                await session.commit()
+                
+                print(f"✅ Блюдо {request.meal_id} удалено из избранного пользователя {user_id}")
+                
+                return {
+                    "status": "success", 
+                    "message": "Блюдо удалено из избранного"
+                }
         
         # Получаем историю и находим блюдо
         history = await get_history(user_id)
