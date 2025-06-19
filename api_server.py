@@ -2355,6 +2355,7 @@ async def get_shared_weight(share_token: str, period: str = "month"):
 # Модели для избранного
 class FavoriteRequest(BaseModel):
     meal_id: int
+    date: Optional[str] = None
 
 class FavoriteItem(BaseModel):
     meal_id: int
@@ -2391,13 +2392,18 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
         user_offset = user_data.get("utc_offset", 0)
         user_tz = timezone(timedelta(hours=user_offset))
         
-        # Определяем дату для анализа (сегодня)
-        target_date = datetime.now(user_tz).date()
+        # Определяем дату для анализа
+        if request.date:
+            target_date = datetime.strptime(request.date, "%Y-%m-%d").date()
+            print(f"📅 Используем дату из запроса: {target_date}")
+        else:
+            target_date = datetime.now(user_tz).date()
+            print(f"📅 Используем сегодняшнюю дату: {target_date}")
         
         # Получаем историю пользователя
         history = await get_history(user_id)
         
-        # Фильтруем записи за сегодня
+        # Фильтруем записи за указанную дату
         entries_today = []
         for entry in history:
             if entry.get("type") == "food":
@@ -2405,10 +2411,10 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
                 if entry_date == target_date:
                     entries_today.append(entry)
         
-        if not entries_today:
-            raise HTTPException(status_code=404, detail="Нет блюд за сегодня")
+        print(f"🍽️ Найдено блюд в дневнике за {target_date}: {len(entries_today)}")
         
-        print(f"🍽️ Найдено блюд в дневнике за сегодня: {len(entries_today)}")
+        if not entries_today:
+            raise HTTPException(status_code=404, detail=f"Нет блюд за {target_date}")
         
         # Проверяем что meal_id в пределах доступных блюд
         if request.meal_id < 1 or request.meal_id > len(entries_today):
