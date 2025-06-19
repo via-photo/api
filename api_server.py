@@ -2536,22 +2536,21 @@ async def get_favorites(user_id: str):
                     meal_entry = meal_entries[meal_index]
                 
                 if meal_entry:
-                    # Парсим данные блюда
-                    meal_data = meal_entry.get("data", {})
-                    if isinstance(meal_data, str):
-                        meal_data = json.loads(meal_data)
+                    # Используем кэшированные функции парсинга как в дневнике
+                    kcal, prot, fat, carb, fiber = parse_nutrition_cached(meal_entry['response'])
+                    description = parse_products_cached(meal_entry['response'])
                     
                     favorite_item = {
                         "meal_id": meal_id,
-                        "description": meal_data.get("description", "Описание недоступно"),
-                        "time": meal_data.get("time", ""),
-                        "calories": meal_data.get("calories", 0),
-                        "protein": meal_data.get("protein", 0),
-                        "fat": meal_data.get("fat", 0),
-                        "carb": meal_data.get("carb", 0),
-                        "fiber": meal_data.get("fiber", 0),
-                        "image": meal_data.get("image", ""),
-                        "products": meal_data.get("products", []),
+                        "description": description,
+                        "time": meal_entry['timestamp'].strftime("%H:%M"),
+                        "calories": kcal,
+                        "protein": prot,
+                        "fat": fat,
+                        "carb": carb,
+                        "fiber": fiber,
+                        "image": meal_entry.get('compressed_image', ''),
+                        "full_response": meal_entry['response'],
                         "added_date": favorite_data.get("added_date", favorite_record.timestamp.isoformat())
                     }
                     favorites_list.append(favorite_item)
