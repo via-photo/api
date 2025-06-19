@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Header, Query
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -2379,34 +2379,21 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import async_session, UserHistory
-        from sqlalchemy import select, cast, JSON, String
+        from sqlalchemy import select, cast, JSON
         
-        # Получаем данные о блюде из истории пользователя
+        # Получаем данные о блюде из meal_entries
         async with async_session() as session:
-            # Получаем историю пользователя для поиска блюда
-            sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-            from bot import get_history
+            # Проверяем существование блюда
+            meal_result = await session.execute(
+                select(UserHistory).where(
+                    UserHistory.id == request.meal_id,
+                    UserHistory.user_id == user_id,
+                    UserHistory.type == "meal"
+                )
+            )
+            meal_data = meal_result.scalar_one_or_none()
             
-            print(f"🔍 Получение истории для пользователя {user_id}...")
-            history = await get_history(user_id)
-            print(f"📊 Получено записей в истории: {len(history)}")
-            
-            # Логируем первые несколько записей для отладки
-            meal_entries = [entry for entry in history if entry.get("type") == "food"]
-            print(f"🍽️ Найдено записей типа 'food': {len(meal_entries)}")
-            
-            # Ищем блюдо в истории по индексу (meal_id это индекс в массиве блюд)
-            print(f"🔎 Ищем блюдо с индексом: {request.meal_id}")
-            meal_data = None
-            
-            # meal_id в дневнике - это индекс блюда в массиве, начиная с 1
-            meal_index = request.meal_id - 1  # Преобразуем в 0-based индекс
-            
-            if 0 <= meal_index < len(meal_entries):
-                meal_data = meal_entries[meal_index]
-                print(f"✅ Блюдо найдено по индексу {meal_index}!")
-            else:
-                print(f"❌ Индекс {meal_index} вне диапазона. Доступно блюд: {len(meal_entries)}")
+            if not meal_data:
                 raise HTTPException(status_code=404, detail="Блюдо не найдено")
             
             # Проверяем, не добавлено ли уже в избранное
@@ -2414,7 +2401,7 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    cast(UserHistory.data, String).contains('{"meal_id": ' + str(request.meal_id) + '}')
+                    UserHistory.data.op('@>')(cast('{"meal_id": ' + str(request.meal_id) + '}', JSON))
                 )
             )
             
@@ -2424,14 +2411,14 @@ async def add_favorite(user_id: str, request: FavoriteRequest):
             # Добавляем в избранное
             favorite_data = {
                 "meal_id": request.meal_id,
-                "added_date": datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+                "added_date": datetime.now(timezone.utc).isoformat()
             }
             
             new_favorite = UserHistory(
                 user_id=user_id,
                 type="favorite",
                 data=json.dumps(favorite_data),
-                timestamp=datetime.now(timezone.utc).replace(tzinfo=None)
+                timestamp=datetime.now(timezone.utc)
             )
             
             session.add(new_favorite)
@@ -2459,7 +2446,7 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import async_session, UserHistory
-        from sqlalchemy import select, delete, cast, JSON, String
+        from sqlalchemy import select, delete, cast, JSON
         
         async with async_session() as session:
             # Ищем запись в избранном
@@ -2467,7 +2454,7 @@ async def remove_favorite(user_id: str, request: FavoriteRequest):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    cast(UserHistory.data, String).contains('{"meal_id": ' + str(request.meal_id) + '}')
+                    UserHistory.data.op('@>')(cast('{"meal_id": ' + str(request.meal_id) + '}', JSON))
                 )
             )
             
@@ -2525,62 +2512,34 @@ async def get_favorites(user_id: str):
                 favorite_data = json.loads(favorite_record.data)
                 meal_id = favorite_data.get("meal_id")
                 
-                # Ищем соответствующее блюдо в истории по индексу
+                # Ищем соответствующее блюдо в истории
                 meal_entry = None
-                meal_entries = [entry for entry in history if entry.get("type") == "food"]
-                
-                # meal_id это индекс блюда в массиве, начиная с 1
-                meal_index = meal_id - 1  # Преобразуем в 0-based индекс
-                
-                if 0 <= meal_index < len(meal_entries):
-                    meal_entry = meal_entries[meal_index]
+                for entry in history:
+                    if entry.get("id") == meal_id and entry.get("type") == "meal":
+                        meal_entry = entry
+                        break
                 
                 if meal_entry:
-                    # Простое извлечение данных как было раньше
-                    response_text = meal_entry.get("response", "")
+                    # Парсим данные блюда
+                    meal_data = meal_entry.get("data", {})
+                    if isinstance(meal_data, str):
+                        meal_data = json.loads(meal_data)
                     
-                    # Базовое извлечение описания
-                    if response_text:
-                        lines = response_text.splitlines()
-                        food_lines = [line for line in lines if line.strip().startswith(("•", "-"))]
-                        if food_lines:
-                            # Берем первую строку как описание
-                            first_line = food_lines[0]
-                            description = re.sub(r'^[•\-]\s*', '', first_line).split("–")[0].strip()
-                        else:
-                            description = "Блюдо из дневника"
-                    else:
-                        description = "Блюдо из дневника"
-                    
-                    # Простое извлечение времени
-                    timestamp = meal_entry.get("timestamp")
-                    if timestamp:
-                        if isinstance(timestamp, str):
-                            try:
-                                timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-                                time_str = timestamp.strftime("%H:%M")
-                            except:
-                                time_str = "12:00"
-                        else:
-                            time_str = timestamp.strftime("%H:%M")
-                    else:
-                        time_str = "12:00"
-                    
-                    # Простые значения БЖУ
                     favorite_item = {
                         "meal_id": meal_id,
-                        "description": description,
-                        "time": time_str,
-                        "calories": 300,  # Заглушка
-                        "protein": 15.0,  # Заглушка
-                        "fat": 10.0,      # Заглушка
-                        "carb": 30.0,     # Заглушка
-                        "fiber": 5.0,     # Заглушка
-                        "image": meal_entry.get("compressed_image", ""),
-                        "products": [],
+                        "description": meal_data.get("description", "Описание недоступно"),
+                        "time": meal_data.get("time", ""),
+                        "calories": meal_data.get("calories", 0),
+                        "protein": meal_data.get("protein", 0),
+                        "fat": meal_data.get("fat", 0),
+                        "carb": meal_data.get("carb", 0),
+                        "fiber": meal_data.get("fiber", 0),
+                        "image": meal_data.get("image", ""),
+                        "products": meal_data.get("products", []),
                         "added_date": favorite_data.get("added_date", favorite_record.timestamp.isoformat())
                     }
-                    favorites_list.append(favorite_item)      
+                    favorites_list.append(favorite_item)
+                    
             except Exception as e:
                 print(f"Ошибка обработки записи избранного: {e}")
                 continue
@@ -2605,7 +2564,7 @@ async def check_favorite_status(user_id: str, meal_id: int):
         # Импортируем функции из bot.py
         sys.path.append(os.path.dirname(os.path.abspath(__file__)))
         from bot import async_session, UserHistory
-        from sqlalchemy import select, cast, JSON, String
+        from sqlalchemy import select, cast, JSON
         
         async with async_session() as session:
             # Проверяем наличие в избранном
@@ -2613,7 +2572,7 @@ async def check_favorite_status(user_id: str, meal_id: int):
                 select(UserHistory).where(
                     UserHistory.user_id == user_id,
                     UserHistory.type == "favorite",
-                    cast(UserHistory.data, String).contains('{"meal_id": ' + str(meal_id) + '}')
+                    UserHistory.data.op('@>')(cast('{"meal_id": ' + str(meal_id) + '}', JSON))
                 )
             )
             
